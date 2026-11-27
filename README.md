@@ -1,56 +1,81 @@
-# Welcome to your Expo app 👋
+# Welcome to Your Expo App 👋
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This project was created using [create-expo-app](https://www.npmjs.com/package/create-expo-app), powered by Expo.
 
-## Get started
+## Getting Started
 
-1. Install dependencies
+### 1. Install Dependencies
 
-   ```bash
-   npm install
-   ```
+Install all required dependencies by running:
 
-2. Start the app
+```bash
+npm install
+```
 
-   ```bash
-   npx expo start
-   ```
+### 2. Start Development
 
-In the output, you'll find options to open the app in a
+You can run the application using the Expo development server. See the start section at the bottom of this README.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## Development
 
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Start developing your application by editing the files inside the `src/app` directory.
 
-## Get a fresh project
+This project uses **file-based routing** with Expo Router.
 
-When you're ready, run:
+## Running the App
+
+Once the development server is running, you can open the app using one of the following options:
+
+- **Development Build** – Run the app using a custom development build.
+- **Android Emulator** – Launch the app on an Android emulator.
+- **iOS Simulator** – Launch the app on an iOS simulator.
+- **Expo Go** – Test the app using Expo Go (with limited functionality).
+
+## Reset the Project
+
+If you want to start with a fresh project, run:
 
 ```bash
 npm run reset-project
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+This command moves the starter files into the `example` directory and creates a new, clean `src/app` directory.
 
-### Other setup steps
+## Additional Setup
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+### ESLint
 
-## Learn more
+To check and maintain code quality:
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npx expo lint
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Unit Testing
 
-## Join the community
+For unit testing setup, refer to the [Jest Unit Testing Guide](https://docs.expo.dev/develop/unit-testing/).
 
-Join our community of developers creating universal apps.
+### TypeScript
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+This project uses TypeScript. Learn more in the [TypeScript Guide](https://docs.expo.dev/guides/typescript/).
+
+## Learn More
+
+- [Expo Documentation](https://docs.expo.dev/) – Learn about Expo fundamentals and advanced guides.
+- [Expo Tutorial](https://docs.expo.dev/tutorial/introduction/) – Learn how to build an application step by step.
+- [Expo Router](https://docs.expo.dev/router/introduction/) – Learn about file-based routing.
+
+## Community
+
+- [Expo GitHub](https://github.com/expo/expo) – Explore the source code and contribute.
+- [Expo Discord](https://chat.expo.dev) – Connect with the Expo community.
+
+---
+
+## Start
+
+Run the following command to start the application:
+
+```bash
+npx expo start
+```
