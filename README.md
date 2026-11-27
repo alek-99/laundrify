@@ -63,14 +63,13 @@ npm install
 
 Mulai pengembangan dengan mengubah atau menambahkan file di dalam direktori `src/app`.
 
-## Tampilan Pengembangan
 
-<p align="center">
+<!-- <p align="center">
   <img src="https://images.unsplash.com/photo-1551650975-87deedd944c3?q=80&w=1000&auto=format&fit=crop" width="48%" alt="Ilustrasi desain aplikasi mobile"/>
   <img src="https://images.unsplash.com/photo-1555774698-0b77e0d5fac6?q=80&w=1000&auto=format&fit=crop" width="48%" alt="Ilustrasi pengembangan mobile"/>
 </p>
 
-<sub>Gambar di atas merupakan ilustrasi dan bukan screenshot aplikasi yang sebenarnya.</sub>
+<sub>Gambar di atas merupakan ilustrasi dan bukan screenshot aplikasi yang sebenarnya.</sub> -->
 
 ## Reset Proyek
 
