@@ -27,10 +27,6 @@ import type { ServiceUnit } from "../../types/database";
 
 import { ArrowLeft, Check, ChevronDown, Shirt } from "lucide-react-native";
 
-// ======================================================
-// THEME
-// ======================================================
-
 const C = {
   bg: "#F5F7FB",
   white: "#FFFFFF",
@@ -44,9 +40,6 @@ const C = {
   red: "#E5484D",
 };
 
-// ======================================================
-// OPTIONS
-// ======================================================
 
 const categories: {
   value: ServiceCategory;

@@ -7,14 +7,14 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, router } from "expo-router";
+
 import {
   Phone,
   MapPin,
   ChevronRight,
   Users,
-  Trash2,
   UserRound,
-  Search,
+  Award,
 } from "lucide-react-native";
 
 import {
@@ -27,7 +27,6 @@ import type { Customer } from "../../types/database";
 
 import {
   AddButton,
-  C,
   Empty,
   Page,
   SearchBox,
@@ -53,12 +52,16 @@ export default function Customers() {
   const [total, setTotal] = useState(0);
   const [busy, setBusy] = useState(false);
 
+  // MEMUAT DATA PELANGGAN
   const load = useCallback(async () => {
     setBusy(true);
 
     try {
       const [data, n] = await Promise.all([
-        getCustomers({ search: q, limit: 100 }),
+        getCustomers({
+          search: q,
+          limit: 100,
+        }),
         countCustomers(),
       ]);
 
@@ -67,7 +70,7 @@ export default function Customers() {
     } catch (e: any) {
       Alert.alert(
         "Gagal memuat",
-        e?.message || "Tidak dapat mengambil data pelanggan.",
+        e?.message || "Tidak dapat mengambil data pelanggan."
       );
     } finally {
       setBusy(false);
@@ -77,9 +80,10 @@ export default function Customers() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load]),
+    }, [load])
   );
 
+  // HAPUS PELANGGAN
   const remove = (id: number, name: string) => {
     Alert.alert(
       "Hapus pelanggan?",
@@ -99,13 +103,18 @@ export default function Customers() {
             } catch (e: any) {
               Alert.alert(
                 "Gagal",
-                e?.message || "Tidak dapat menghapus pelanggan.",
+                e?.message || "Tidak dapat menghapus pelanggan."
               );
             }
           },
         },
-      ],
+      ]
     );
+  };
+
+  // NAVIGASI MEMBER
+  const openMember = () => {
+    router.push("/customers/member");
   };
 
   return (
@@ -113,10 +122,38 @@ export default function Customers() {
       title="Pelanggan"
       subtitle="Kelola data pelanggan laundry"
       right={
-        <AddButton
-          title="Tambah"
-          onPress={() => router.push("/customers/form")}
-        />
+        <View style={styles.headerActions}>
+          {/* TOMBOL MEMBER */}
+          <Pressable
+            onPress={openMember}
+            style={({ pressed }) => [
+              styles.memberButton,
+              {
+                opacity: pressed ? 0.7 : 1,
+                transform: [
+                  {
+                    scale: pressed ? 0.97 : 1,
+                  },
+                ],
+              },
+            ]}
+          >
+            <Award
+              size={15}
+              color={COLORS.primary}
+            />
+
+            <Text style={styles.memberButtonText}>
+              Member
+            </Text>
+          </Pressable>
+
+          {/* TOMBOL TAMBAH */}
+          <AddButton
+            title="Tambah"
+            onPress={() => router.push("/customers/form")}
+          />
+        </View>
       }
     >
       {/* TOTAL PELANGGAN */}
@@ -136,7 +173,10 @@ export default function Customers() {
         </View>
 
         <View style={styles.summaryIcon}>
-          <Users size={23} color={COLORS.primary} />
+          <Users
+            size={23}
+            color={COLORS.primary}
+          />
         </View>
       </View>
 
@@ -187,8 +227,12 @@ export default function Customers() {
           {rows.map((c, index) => (
             <Pressable
               key={c.id}
-              onPress={() => router.push(`/customers/${c.id}`)}
-              onLongPress={() => remove(c.id, c.name)}
+              onPress={() =>
+                router.push(`/customers/${c.id}`)
+              }
+              onLongPress={() =>
+                remove(c.id, c.name)
+              }
               style={({ pressed }) => [
                 styles.customerCard,
                 {
@@ -294,6 +338,33 @@ export default function Customers() {
 }
 
 const styles = {
+  // HEADER ACTIONS
+  headerActions: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 8,
+  },
+
+  memberButton: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: "#D5E1FF",
+    borderRadius: 4,
+  },
+
+  memberButtonText: {
+    fontSize: 10,
+    fontWeight: "800" as const,
+    color: COLORS.primary,
+  },
+
+  // SUMMARY
   summaryCard: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -305,7 +376,10 @@ const styles = {
     borderRadius: 4,
     marginBottom: 17,
     shadowColor: "#AAB3C0",
-    shadowOffset: { width: 2, height: 2 },
+    shadowOffset: {
+      width: 2,
+      height: 2,
+    },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
@@ -344,10 +418,12 @@ const styles = {
     borderRadius: 4,
   },
 
+  // SEARCH
   searchContainer: {
     marginBottom: 20,
   },
 
+  // LIST HEADER
   listHeader: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -382,6 +458,7 @@ const styles = {
     fontWeight: "800" as const,
   },
 
+  // CUSTOMER LIST
   customerList: {
     gap: 0,
   },
@@ -393,7 +470,10 @@ const styles = {
     borderRadius: 4,
     padding: 14,
     shadowColor: "#AAB3C0",
-    shadowOffset: { width: 2, height: 2 },
+    shadowOffset: {
+      width: 2,
+      height: 2,
+    },
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
@@ -452,6 +532,7 @@ const styles = {
     marginTop: 2,
   },
 
+  // CONTACT
   customerDivider: {
     height: 1,
     backgroundColor: COLORS.border,
@@ -484,6 +565,7 @@ const styles = {
     lineHeight: 16,
   },
 
+  // FOOTER
   footer: {
     marginTop: 18,
     paddingVertical: 13,

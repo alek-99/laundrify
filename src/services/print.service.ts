@@ -21,6 +21,33 @@ function rupiah(amount: number): string {
   return "Rp " + (amount || 0).toLocaleString("id-ID");
 }
 
+export type ThermalPaperWidth = 58 | 88;
+
+export interface PrintLabelOptions {
+  labelsPerSheet?: number; // 2 atau 3 label per 1 kertas
+  paperWidth?: ThermalPaperWidth;
+  paperWidthMm?: ThermalPaperWidth;
+  autoPaperSize?: boolean;
+  showLogo?: boolean;
+  logoUri?: string | null;
+  layout?: string;
+}
+
+function resolveThermalWidth(
+  options?: PrintLabelOptions,
+  settingsMap?: Record<string, string>,
+): ThermalPaperWidth {
+  const raw = Number(
+    options?.paperWidthMm ??
+      options?.paperWidth ??
+      settingsMap?.paper_width ??
+      settingsMap?.printer_paper_width ??
+      settingsMap?.thermal_paper_width ??
+      58,
+  );
+  return raw === 88 ? 88 : 58;
+}
+
 export class PrintService {
   // ====================================================================
   // 1. RECEIPT (STRUK THERMAL)
@@ -38,6 +65,9 @@ export class PrintService {
     const footer =
       settingsMap?.invoice_footer ||
       "Terima kasih atas kepercayaan Anda.\nSimpan struk ini saat pengambilan.";
+
+    const paperWidth = resolveThermalWidth(undefined, settingsMap);
+    const bodyWidth = paperWidth === 88 ? "84mm" : "54mm";
 
     const itemsHTML = order.items
       .map(
@@ -69,24 +99,28 @@ export class PrintService {
         <meta charset="utf-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <style>
+          @page {
+            size: ${paperWidth}mm auto;
+            margin: 0;
+          }
           * { box-sizing: border-box; }
           body {
             font-family: 'Courier New', Courier, monospace, sans-serif;
-            width: 280px;
+            width: ${bodyWidth};
             margin: 0 auto;
-            padding: 12px;
+            padding: 8px;
             color: #111;
-            font-size: 12px;
+            font-size: ${paperWidth === 88 ? "12px" : "11px"};
             line-height: 1.4;
           }
           .center { text-align: center; }
-          .brand { font-size: 18px; font-weight: 900; letter-spacing: 1px; }
+          .brand { font-size: ${paperWidth === 88 ? "18px" : "15px"}; font-weight: 900; letter-spacing: 1px; }
           .info { font-size: 10px; color: #444; margin-top: 3px; }
-          .divider { border-top: 1px dashed #222; margin: 10px 0; }
+          .divider { border-top: 1px dashed #222; margin: 8px 0; }
           .row { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
           .bold { font-weight: bold; }
-          .total-row { font-size: 15px; font-weight: 900; margin: 8px 0; }
-          .footer { text-align: center; font-size: 10px; color: #555; margin-top: 16px; }
+          .total-row { font-size: ${paperWidth === 88 ? "15px" : "13px"}; font-weight: 900; margin: 8px 0; }
+          .footer { text-align: center; font-size: 10px; color: #555; margin-top: 14px; }
         </style>
       </head>
       <body>
@@ -204,18 +238,40 @@ export class PrintService {
   }
 
   // ====================================================================
-  // 2. LABEL (LABEL PACKING CUCIAN)
+  // 2. LABEL (2 ATAU 3 LABEL DALAM 1 KERTAS THERMAL 58MM / 88MM + LOGO)
   // ====================================================================
 
   static generateLabelHTML(
     order: OrderWithDetails,
     copies: number,
     settingsMap?: Record<string, string>,
+    options?: PrintLabelOptions,
   ): string {
     const laundryName =
       settingsMap?.laundry_name || settingsMap?.business_name || "LAUNDRIFY";
+    const laundryTagline =
+      settingsMap?.laundry_tagline || "LAUNDRY & DRY CLEAN";
 
-    // Format tanggal singkat (mis. 24 Nov 2026)
+    // Ambil URL / Base64 logo dari opsi atau settings database
+    const logoUri =
+      options?.logoUri ||
+      settingsMap?.laundry_logo ||
+      settingsMap?.business_logo ||
+      settingsMap?.logo_url ||
+      settingsMap?.logo_base64 ||
+      "";
+
+    // Otomatis 58mm atau 88mm
+    const paperWidth = resolveThermalWidth(options, settingsMap);
+    const is58mm = paperWidth === 58;
+    const printableWidth = is58mm ? "54mm" : "84mm";
+
+    // Batasi 2 atau 3 label dalam 1 kertas untuk menghemat kertas thermal
+    const labelsPerSheet = Math.min(
+      3,
+      Math.max(2, Number(options?.labelsPerSheet ?? copies) || 3),
+    );
+
     const orderDateStr = order.order_date
       ? new Date(order.order_date).toLocaleDateString("id-ID", {
           day: "numeric",
@@ -224,37 +280,71 @@ export class PrintService {
         })
       : "-";
 
-    const itemsSummary = order.items
-      .map((it) => `${it.service_name} (${it.quantity} ${it.unit})`)
-      .join(", ");
+    const itemsSummary =
+      order.items
+        ?.map((it) => `${it.service_name} (${it.quantity} ${it.unit})`)
+        .join(", ") || "-";
+
+    const isPaid = order.payment_status === "paid" || order.remaining <= 0;
+    const statusBayarText = isPaid
+      ? "LUNAS ✓"
+      : `BELUM LUNAS (Sisa ${rupiah(order.remaining)})`;
+
+    // Logo HTML (Gambar logo outlet jika ada, atau ikon emblem laundry + teks)
+    const logoHTML = logoUri
+      ? `<img src="${escapeHTML(logoUri)}" class="logo-img" alt="Logo" />`
+      : `
+        <div class="logo-emblem">
+          <svg width="${is58mm ? "12" : "15"}" height="${is58mm ? "12" : "15"}" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="2" width="18" height="20" rx="3"/>
+            <circle cx="12" cy="13" r="5"/>
+            <line x1="7" y1="6" x2="7.01" y2="6"/>
+            <line x1="11" y1="6" x2="11.01" y2="6"/>
+          </svg>
+        </div>
+      `;
 
     let labelsHTML = "";
 
-    for (let i = 1; i <= copies; i++) {
+    for (let i = 1; i <= labelsPerSheet; i++) {
       labelsHTML += `
-        <div class="label-sheet">
+        <div class="label-box">
           <div class="label-header">
-            <span class="brand">${escapeHTML(laundryName.toUpperCase())}</span>
-            <span class="badge">LABEL ${i}/${copies}</span>
+            <div class="brand-wrap">
+              ${logoHTML}
+              <div>
+                <div class="brand">${escapeHTML(laundryName.toUpperCase())}</div>
+                ${!is58mm ? `<div class="tagline">${escapeHTML(laundryTagline)}</div>` : ""}
+              </div>
+            </div>
+            <span class="badge">${i}/${labelsPerSheet}</span>
           </div>
 
-          <div class="customer-name">${escapeHTML(order.customer_name || "Pelanggan umum")}</div>
-
-          <div class="label-meta">
-            <div><b>Order:</b> ${escapeHTML(order.order_number)}</div>
-            <div><b>Tgl:</b> ${escapeHTML(orderDateStr)}</div>
+          <div class="line">
+            <span class="key">Nama:</span>
+            <span class="customer-name">${escapeHTML(order.customer_name || "Pelanggan umum")}</span>
           </div>
 
-          <div class="label-details">
-            <b>Ket:</b> ${escapeHTML(itemsSummary)}
-            ${order.notes ? `<br/><b>Cat:</b> ${escapeHTML(order.notes)}` : ""}
+          <div class="line meta-row">
+            <span><span class="key">Order ID:</span> <b>${escapeHTML(order.order_number)}</b></span>
+            <span>${escapeHTML(orderDateStr)}</span>
+          </div>
+
+          <div class="line details">
+            <span class="key">Ket:</span> ${escapeHTML(itemsSummary)}
+            ${order.notes ? ` · <i>(${escapeHTML(order.notes)})</i>` : ""}
           </div>
 
           <div class="label-footer">
-            <span>Telp: ${escapeHTML(order.customer_phone || "-")}</span>
-            <span style="font-weight: bold;">${order.payment_status === "paid" ? "LUNAS" : "BELUM LUNAS"}</span>
+            <span><span class="key">Telpon:</span> ${escapeHTML(order.customer_phone || "-")}</span>
+            <span class="pay-status">${escapeHTML(statusBayarText)}</span>
           </div>
         </div>
+        ${
+          i < labelsPerSheet
+            ? `<div class="cut-line"><span>✂ POTONG DI SINI</span></div>`
+            : ""
+        }
       `;
     }
 
@@ -265,81 +355,139 @@ export class PrintService {
         <meta charset="utf-8"/>
         <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
         <style>
+          @page {
+            size: ${paperWidth}mm auto;
+            margin: 0;
+          }
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 8px;
+            font-family: Arial, Helvetica, sans-serif;
+            width: ${printableWidth};
+            margin: 0 auto;
+            padding: ${is58mm ? "2mm 1mm" : "3mm 2mm"};
             background: #fff;
+            color: #000;
           }
-          .label-sheet {
-            width: 280px;
-            border: 2px solid #111;
-            border-radius: 6px;
-            padding: 10px;
-            margin: 0 auto 14px auto;
-            page-break-after: always;
+          .sheet-wrapper {
+            width: 100%;
+            page-break-inside: avoid;
+          }
+          .label-box {
+            width: 100%;
+            border: 1.5px solid #000;
+            border-radius: 4px;
+            padding: ${is58mm ? "4px 5px" : "6px 8px"};
             background: #fff;
-          }
-          .label-sheet:last-child {
-            page-break-after: avoid;
           }
           .label-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1.5px solid #111;
-            padding-bottom: 6px;
-            margin-bottom: 8px;
+            border-bottom: 1.2px solid #000;
+            padding-bottom: ${is58mm ? "3px" : "4px"};
+            margin-bottom: ${is58mm ? "3px" : "4px"};
+          }
+          .brand-wrap {
+            display: flex;
+            align-items: center;
+            gap: ${is58mm ? "4px" : "6px"};
+          }
+          .logo-emblem {
+            width: ${is58mm ? "18px" : "22px"};
+            height: ${is58mm ? "18px" : "22px"};
+            border-radius: 4px;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+          }
+          .logo-img {
+            width: ${is58mm ? "20px" : "26px"};
+            height: ${is58mm ? "20px" : "26px"};
+            object-fit: contain;
+            border-radius: 3px;
+            flex-shrink: 0;
           }
           .brand {
-            font-size: 11px;
+            font-size: ${is58mm ? "9.5px" : "11.5px"};
             font-weight: 900;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.4px;
+            line-height: 1.1;
+          }
+          .tagline {
+            font-size: 7.5px;
+            font-weight: 700;
+            color: #333;
+            margin-top: 1px;
           }
           .badge {
-            background: #111;
+            border: 1px solid #000;
+            background: #000;
             color: #fff;
-            font-size: 10px;
-            font-weight: bold;
-            padding: 2px 6px;
+            font-size: ${is58mm ? "8px" : "9px"};
+            font-weight: 900;
+            padding: 1px 5px;
             border-radius: 3px;
           }
-          .customer-name {
-            font-size: 17px;
-            font-weight: 900;
-            color: #000;
-            margin-bottom: 6px;
+          .line {
+            font-size: ${is58mm ? "8.5px" : "10px"};
+            line-height: 1.28;
+            margin-bottom: 2px;
             word-break: break-word;
           }
-          .label-meta {
+          .key {
+            font-weight: 700;
+            color: #222;
+          }
+          .customer-name {
+            font-size: ${is58mm ? "10px" : "12px"};
+            font-weight: 900;
+            color: #000;
+          }
+          .meta-row {
             display: flex;
             justify-content: space-between;
-            font-size: 10px;
-            color: #333;
-            margin-bottom: 6px;
-            border-bottom: 1px dashed #ccc;
-            padding-bottom: 4px;
+            gap: 4px;
           }
-          .label-details {
-            font-size: 10px;
-            color: #222;
-            line-height: 1.4;
-            min-height: 32px;
+          .details {
+            border-top: 1px dashed #999;
+            padding-top: 2px;
+            margin-top: 2px;
           }
           .label-footer {
             display: flex;
             justify-content: space-between;
-            font-size: 9px;
-            color: #444;
-            margin-top: 8px;
-            border-top: 1px solid #111;
-            padding-top: 5px;
+            align-items: center;
+            gap: 4px;
+            font-size: ${is58mm ? "8px" : "9.5px"};
+            margin-top: 3px;
+            border-top: 1px solid #000;
+            padding-top: 2.5px;
+          }
+          .pay-status {
+            font-weight: 900;
+          }
+          .cut-line {
+            position: relative;
+            text-align: center;
+            margin: ${is58mm ? "4px 0" : "6px 0"};
+            border-bottom: 1px dashed #000;
+            line-height: 0.1em;
+          }
+          .cut-line span {
+            background: #fff;
+            padding: 0 5px;
+            font-size: ${is58mm ? "7px" : "8px"};
+            font-weight: 800;
+            color: #333;
           }
         </style>
       </head>
       <body>
-        ${labelsHTML}
+        <div class="sheet-wrapper">
+          ${labelsHTML}
+        </div>
       </body>
       </html>
     `;
@@ -348,8 +496,14 @@ export class PrintService {
   static async printLabel(
     order: OrderWithDetails,
     copies: number,
+    options?: PrintLabelOptions,
   ): Promise<void> {
-    const validCopies = Math.max(1, Math.min(copies || 1, 50));
+    // 2 atau 3 label dalam 1 lembar kertas untuk menghemat kertas thermal
+    const validLabelsPerSheet = Math.min(
+      3,
+      Math.max(2, Number(options?.labelsPerSheet ?? copies) || 3),
+    );
+
     const settings = await getAllSettings();
     const settingsMap: Record<string, string> = {};
     settings.forEach((s) => {
@@ -360,9 +514,14 @@ export class PrintService {
 
     const html = PrintService.generateLabelHTML(
       order,
-      validCopies,
+      validLabelsPerSheet,
       settingsMap,
+      {
+        ...options,
+        labelsPerSheet: validLabelsPerSheet,
+      },
     );
+
     await Print.printAsync({ html });
 
     // Catat print_logs
@@ -371,7 +530,7 @@ export class PrintService {
       await db.runAsync(
         `INSERT INTO print_logs (print_type, order_id, copies) VALUES ('label', ?, ?)`,
         order.id,
-        validCopies,
+        validLabelsPerSheet,
       );
     } catch (e) {
       console.warn("Gagal mencatat print_logs label:", e);

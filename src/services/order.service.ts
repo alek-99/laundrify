@@ -128,6 +128,64 @@ export async function createOrder(input: CreateOrderInput) {
         continue;
       }
 
+// ORDER KHUSUS MEMBER: HANYA INPUT TOTAL KG
+if (item.use_subscription_id && !item.service_id) {
+  if (!customerId) {
+    throw new Error("Order member harus menggunakan pelanggan terdaftar.");
+  }
+
+  const sub = await tx.getFirstAsync<MemberSubscriptionWithBalance>(
+    `SELECT * FROM v_subscription_balance
+     WHERE id = ?
+       AND customer_id = ?
+       AND status = 'active'`,
+    item.use_subscription_id,
+    customerId,
+  );
+
+  if (!sub) {
+    throw new Error("Membership tidak aktif atau tidak ditemukan.");
+  }
+
+  const alreadyUsed = usedInCurrentTx[sub.id] || 0;
+  const available = Math.max(0, sub.remaining_kg - alreadyUsed);
+
+  if (available < 5) {
+    throw new Error(
+      `Sisa kuota membership hanya ${available} KG. Minimal penggunaan adalah 5 KG.`,
+    );
+  }
+
+  if (item.quantity < 5) {
+    throw new Error("Minimal penggunaan kuota member adalah 5 KG.");
+  }
+
+  if (item.quantity > available) {
+    throw new Error(
+      `Jumlah ${item.quantity} KG melebihi sisa kuota ${available} KG.`,
+    );
+  }
+
+  // Tidak ada biaya karena dibayar menggunakan kuota membership.
+  processedItems.push({
+    item_type: "service",
+    service_id: null,
+    package_id: null,
+    service_name: `Laundry Member - ${sub.package_name}`,
+    unit: "KG",
+    quantity: item.quantity,
+    price: 0,
+    subtotal: 0,
+    paid_by_subscription_id: sub.id,
+    notes: item.notes ?? "Order menggunakan kuota membership",
+    quota_usage_kg: item.quantity,
+    subscription_id_for_usage: sub.id,
+  });
+
+  usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
+  continue;
+}
+
       // Layanan biasa
       const svc = await tx.getFirstAsync<Service>(
         `SELECT * FROM services WHERE id = ? AND is_active = 1`,
@@ -138,87 +196,77 @@ export async function createOrder(input: CreateOrderInput) {
       }
 
       // Cek apakah item memakai kuota langganan aktif
-      if (item.use_subscription_id && customerId) {
-        const sub = await tx.getFirstAsync<MemberSubscriptionWithBalance>(
-          `SELECT * FROM v_subscription_balance
-           WHERE id = ? AND customer_id = ? AND status = 'active'`,
-          item.use_subscription_id,
-          customerId,
-        );
+   
+// CEK PENGGUNAAN KUOTA PADA LAYANAN REGULER
+if (item.use_subscription_id) {
+  if (!customerId) {
+    throw new Error("Membership harus menggunakan pelanggan terdaftar.");
+  }
 
-        if (sub && svc.category === "kiloan" && svc.package_type === sub.package_type) {
-          const alreadyUsed = usedInCurrentTx[sub.id] || 0;
-          const available = Math.max(0, sub.remaining_kg - alreadyUsed);
+  if (svc.category !== "kiloan" || !svc.package_type) {
+    throw new Error("Kuota member hanya berlaku untuk layanan kiloan.");
+  }
 
-          if (available >= item.quantity) {
-            // Kuota cukup penuh
-            const lineSubtotal = Math.round(item.quantity * svc.price);
-            subtotal += lineSubtotal;
-            memberDiscount += lineSubtotal;
+  const sub = await tx.getFirstAsync<MemberSubscriptionWithBalance>(
+    `SELECT * FROM v_subscription_balance
+     WHERE id = ?
+       AND customer_id = ?
+       AND status = 'active'`,
+    item.use_subscription_id,
+    customerId,
+  );
 
-            processedItems.push({
-              item_type: "service",
-              service_id: svc.id,
-              package_id: null,
-              service_name: svc.name,
-              unit: svc.unit,
-              quantity: item.quantity,
-              price: svc.price,
-              subtotal: lineSubtotal,
-              paid_by_subscription_id: sub.id,
-              notes: item.notes ?? null,
-              quota_usage_kg: item.quantity,
-              subscription_id_for_usage: sub.id,
-            });
+  if (!sub) {
+    throw new Error("Membership tidak aktif atau tidak ditemukan.");
+  }
 
-            usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
-            continue;
-          } else if (available > 0) {
-            // Kuota sebagian -> pecah menjadi 2 item: bagian kuota & bagian tunai
-            const quotaQty = available;
-            const quotaSubtotal = Math.round(quotaQty * svc.price);
-            subtotal += quotaSubtotal;
-            memberDiscount += quotaSubtotal;
+  if (svc.package_type !== sub.package_type) {
+    throw new Error(
+      `Tipe paket layanan ${svc.package_type} tidak sesuai dengan membership ${sub.package_type}.`,
+    );
+  }
 
-            processedItems.push({
-              item_type: "service",
-              service_id: svc.id,
-              package_id: null,
-              service_name: svc.name,
-              unit: svc.unit,
-              quantity: quotaQty,
-              price: svc.price,
-              subtotal: quotaSubtotal,
-              paid_by_subscription_id: sub.id,
-              notes: item.notes
-                ? `${item.notes} (Potongan Kuota)`
-                : "(Potongan Kuota Member)",
-              quota_usage_kg: quotaQty,
-              subscription_id_for_usage: sub.id,
-            });
+  const alreadyUsed = usedInCurrentTx[sub.id] || 0;
+  const available = Math.max(0, sub.remaining_kg - alreadyUsed);
 
-            const normalQty = Math.round((item.quantity - available) * 100) / 100;
-            const normalSubtotal = Math.round(normalQty * svc.price);
-            subtotal += normalSubtotal;
+  if (available < 5) {
+    throw new Error("Sisa kuota membership kurang dari 5 KG.");
+  }
 
-            processedItems.push({
-              item_type: "service",
-              service_id: svc.id,
-              package_id: null,
-              service_name: svc.name,
-              unit: svc.unit,
-              quantity: normalQty,
-              price: svc.price,
-              subtotal: normalSubtotal,
-              paid_by_subscription_id: null,
-              notes: item.notes ?? null,
-            });
+  if (item.quantity < 5) {
+    throw new Error("Minimal penggunaan kuota member adalah 5 KG.");
+  }
 
-            usedInCurrentTx[sub.id] = alreadyUsed + quotaQty;
-            continue;
-          }
-        }
-      }
+  if (item.quantity > available) {
+    throw new Error(
+      `Kuota tidak mencukupi. Sisa kuota hanya ${available} KG.`,
+    );
+  }
+
+  const lineSubtotal = Math.round(item.quantity * svc.price);
+
+  subtotal += lineSubtotal;
+  memberDiscount += lineSubtotal;
+
+  processedItems.push({
+    item_type: "service",
+    service_id: svc.id,
+    package_id: null,
+    service_name: svc.name,
+    unit: svc.unit,
+    quantity: item.quantity,
+    price: svc.price,
+    subtotal: lineSubtotal,
+    paid_by_subscription_id: sub.id,
+    notes: item.notes ?? null,
+    quota_usage_kg: item.quantity,
+    subscription_id_for_usage: sub.id,
+  });
+
+  usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
+  continue;
+}
+
 
       // Layanan reguler (tanpa kuota)
       const lineSubtotal = Math.round(item.quantity * svc.price);

@@ -9,7 +9,44 @@ import type {
 export class MemberService {
   /**
    * Ambil daftar paket member aktif
-   */
+   *//**
+ * Ambil seluruh daftar membership beserta saldo kuota.
+ * Bisa digunakan untuk halaman pengelolaan member.
+ */
+static async getAllSubscriptions(search = "") {
+  const db = await getDatabase();
+  const keyword = search.trim();
+
+  return db.getAllAsync<
+    MemberSubscriptionWithBalance & {
+      customer_name: string;
+      customer_phone: string | null;
+    }
+  >(
+    `SELECT
+       v.*,
+       c.name AS customer_name,
+       c.phone AS customer_phone
+     FROM v_subscription_balance v
+     INNER JOIN customers c ON c.id = v.customer_id
+     WHERE
+       (? = ''
+        OR c.name LIKE '%' || ? || '%' COLLATE NOCASE
+        OR v.member_no LIKE '%' || ? || '%' COLLATE NOCASE
+        OR v.package_name LIKE '%' || ? || '%' COLLATE NOCASE)
+     ORDER BY
+       CASE v.status
+         WHEN 'active' THEN 1
+         WHEN 'used_up' THEN 2
+         ELSE 3
+       END,
+       v.created_at DESC`,
+    keyword,
+    keyword,
+    keyword,
+    keyword,
+  );
+}
   static async getMemberPackages(): Promise<MemberPackage[]> {
     const db = await getDatabase();
     return db.getAllAsync<MemberPackage>(
