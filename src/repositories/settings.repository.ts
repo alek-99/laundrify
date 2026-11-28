@@ -6,6 +6,8 @@ import { getDatabase } from "../database";
 // ==========================================
 
 export const SETTING_KEYS = {
+  LAUNDRY_NAME: "laundry_name",
+  LAUNDRY_PHONE: "laundry_phone",
   LAUNDRY_ADDRESS: "laundry_address",
 } as const;
 
@@ -47,27 +49,4 @@ export async function getAllSettings() {
     key: string;
     value: string | null;
   }>(`SELECT key, value FROM app_settings ORDER BY key ASC`);
-}
-
-export async function deleteSetting(key: string) {
-  const db = await getDatabase();
-
-  const result = await db.runAsync(
-    `DELETE FROM app_settings WHERE key = ?`,
-    key,
-  );
-
-  return result.changes > 0;
-}
-
-// ==========================================
-// LAUNDRY ADDRESS
-// ==========================================
-
-export async function setLaundryAddress(address: string) {
-  return setSetting(SETTING_KEYS.LAUNDRY_ADDRESS, address.trim());
-}
-
-export async function getLaundryAddress() {
-  return (await getSetting(SETTING_KEYS.LAUNDRY_ADDRESS)) ?? "";
 }

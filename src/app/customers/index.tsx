@@ -1,21 +1,21 @@
 
-import React, { useCallback, useState } from "react";
+import { FlashList } from "@shopify/flash-list";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useFocusEffect, router } from "expo-router";
 
-import {
-  Phone,
-  MapPin,
-  ChevronRight,
-  Users,
-  UserRound,
-  Award,
-} from "lucide-react-native";
+import Award from "lucide-react-native/icons/award";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import MapPin from "lucide-react-native/icons/map-pin";
+import Phone from "lucide-react-native/icons/phone";
+import UserRound from "lucide-react-native/icons/user-round";
+import Users from "lucide-react-native/icons/users";
 
 import {
   getCustomers,
@@ -46,81 +46,207 @@ const COLORS = {
   red: "#D94A4A",
 };
 
+const CustomerCard = memo(function CustomerCard({
+  customer,
+  onPress,
+  onLongPress,
+}: {
+  customer: Customer;
+  onPress: (id: number) => void;
+  onLongPress: (id: number, name: string) => void;
+}) {
+  return (
+    <Pressable
+      onPress={() => onPress(customer.id)}
+      onLongPress={() => onLongPress(customer.id, customer.name)}
+      style={({ pressed }) => [
+        styles.customerCard,
+        pressed && styles.customerCardPressed,
+      ]}
+    >
+      {/* INFORMASI UTAMA */}
+      <View style={styles.customerHeader}>
+        <View style={styles.customerIcon}>
+          <UserRound size={21} color={COLORS.primary} />
+        </View>
+
+        <View style={styles.customerInfo}>
+          <Text numberOfLines={1} style={styles.customerName}>
+            {customer.name}
+          </Text>
+
+          <Text style={styles.customerId}>
+            Pelanggan #{customer.id}
+          </Text>
+        </View>
+
+        <View style={styles.orderBadge}>
+          <Text style={styles.orderValue}>
+            {customer.total_orders}
+          </Text>
+
+          <Text style={styles.orderLabel}>
+            Order
+          </Text>
+        </View>
+
+        <ChevronRight size={17} color={COLORS.muted} />
+      </View>
+
+      {(customer.phone || customer.address) && (
+        <View style={styles.customerDivider} />
+      )}
+
+      {(customer.phone || customer.address) && (
+        <View style={styles.contactContainer}>
+          {customer.phone ? (
+            <View style={styles.contactRow}>
+              <View style={styles.contactIcon}>
+                <Phone size={13} color={COLORS.muted} />
+              </View>
+
+              <Text style={styles.contactText}>
+                {customer.phone}
+              </Text>
+            </View>
+          ) : null}
+
+          {customer.address ? (
+            <View style={styles.contactRow}>
+              <View style={styles.contactIcon}>
+                <MapPin size={13} color={COLORS.muted} />
+              </View>
+
+              <Text numberOfLines={2} style={styles.contactText}>
+                {customer.address}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+    </Pressable>
+  );
+});
+
 export default function Customers() {
   const [rows, setRows] = useState<Customer[]>([]);
   const [q, setQ] = useState("");
   const [total, setTotal] = useState(0);
   const [busy, setBusy] = useState(false);
 
+  const qRef = useRef(q);
+  const hasLoadedRef = useRef(false);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    qRef.current = q;
+  }, [q]);
+
   // MEMUAT DATA PELANGGAN
-  const load = useCallback(async () => {
+  const load = useCallback(async (searchValue = qRef.current) => {
+    const requestId = ++requestIdRef.current;
     setBusy(true);
 
     try {
       const [data, n] = await Promise.all([
         getCustomers({
-          search: q,
+          search: searchValue,
           limit: 100,
         }),
         countCustomers(),
       ]);
 
+      if (requestId !== requestIdRef.current) return;
+
       setRows(data);
       setTotal(n);
+      hasLoadedRef.current = true;
     } catch (e: any) {
-      Alert.alert(
-        "Gagal memuat",
-        e?.message || "Tidak dapat mengambil data pelanggan."
-      );
+      if (requestId === requestIdRef.current) {
+        Alert.alert(
+          "Gagal memuat",
+          e?.message || "Tidak dapat mengambil data pelanggan.",
+        );
+      }
     } finally {
-      setBusy(false);
+      if (requestId === requestIdRef.current) {
+        setBusy(false);
+      }
     }
-  }, [q]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      load(qRef.current);
+    }, [load]),
   );
 
-  // HAPUS PELANGGAN
-  const remove = (id: number, name: string) => {
-    Alert.alert(
-      "Hapus pelanggan?",
-      `Data ${name} akan disembunyikan dari daftar.`,
-      [
-        {
-          text: "Batal",
-          style: "cancel",
-        },
-        {
-          text: "Hapus",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteCustomer(id);
-              await load();
-            } catch (e: any) {
-              Alert.alert(
-                "Gagal",
-                e?.message || "Tidak dapat menghapus pelanggan."
-              );
-            }
-          },
-        },
-      ]
-    );
-  };
+  useEffect(() => {
+    if (!hasLoadedRef.current) return;
+    const timer = setTimeout(() => {
+      load(q);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [q, load]);
 
-  // NAVIGASI MEMBER
-  const openMember = () => {
+  // HAPUS PELANGGAN
+  const remove = useCallback(
+    (id: number, name: string) => {
+      Alert.alert(
+        "Hapus pelanggan?",
+        `Data ${name} akan disembunyikan dari daftar.`,
+        [
+          {
+            text: "Batal",
+            style: "cancel",
+          },
+          {
+            text: "Hapus",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deleteCustomer(id);
+                await load(qRef.current);
+              } catch (e: any) {
+                Alert.alert(
+                  "Gagal",
+                  e?.message || "Tidak dapat menghapus pelanggan.",
+                );
+              }
+            },
+          },
+        ],
+      );
+    },
+    [load],
+  );
+
+  // NAVIGASI
+  const openMember = useCallback(() => {
     router.push("/customers/member");
-  };
+  }, []);
+
+  const handleOpenCustomer = useCallback((id: number) => {
+    router.push(`/customers/${id}`);
+  }, []);
+
+  const keyExtractor = useCallback((item: Customer) => String(item.id), []);
+  const renderCustomer = useCallback(
+    ({ item }: { item: Customer }) => (
+      <CustomerCard
+        customer={item}
+        onPress={handleOpenCustomer}
+        onLongPress={remove}
+      />
+    ),
+    [handleOpenCustomer, remove],
+  );
 
   return (
     <Page
       title="Pelanggan"
       subtitle="Kelola data pelanggan laundry"
+      scroll={false}
       right={
         <View style={styles.headerActions}>
           {/* TOMBOL MEMBER */}
@@ -128,20 +254,10 @@ export default function Customers() {
             onPress={openMember}
             style={({ pressed }) => [
               styles.memberButton,
-              {
-                opacity: pressed ? 0.7 : 1,
-                transform: [
-                  {
-                    scale: pressed ? 0.97 : 1,
-                  },
-                ],
-              },
+              pressed && styles.pressed,
             ]}
           >
-            <Award
-              size={15}
-              color={COLORS.primary}
-            />
+            <Award size={15} color={COLORS.primary} />
 
             <Text style={styles.memberButtonText}>
               Member
@@ -173,10 +289,7 @@ export default function Customers() {
         </View>
 
         <View style={styles.summaryIcon}>
-          <Users
-            size={23}
-            color={COLORS.primary}
-          />
+          <Users size={23} color={COLORS.primary} />
         </View>
       </View>
 
@@ -209,146 +322,58 @@ export default function Customers() {
       </View>
 
       {/* DAFTAR PELANGGAN */}
-      {rows.length === 0 ? (
-        <Empty
-          title={
-            q
-              ? "Pelanggan tidak ditemukan"
-              : "Pelanggan belum tersedia"
-          }
-          desc={
-            q
-              ? "Coba gunakan kata kunci pencarian lain."
-              : "Tambahkan pelanggan pertama untuk mulai membuat pesanan."
-          }
-        />
-      ) : (
-        <View style={styles.customerList}>
-          {rows.map((c, index) => (
-            <Pressable
-              key={c.id}
-              onPress={() =>
-                router.push(`/customers/${c.id}`)
-              }
-              onLongPress={() =>
-                remove(c.id, c.name)
-              }
-              style={({ pressed }) => [
-                styles.customerCard,
-                {
-                  opacity: pressed ? 0.75 : 1,
-                  marginBottom:
-                    index === rows.length - 1 ? 0 : 10,
-                },
-              ]}
-            >
-              {/* INFORMASI UTAMA */}
-              <View style={styles.customerHeader}>
-                <View style={styles.customerIcon}>
-                  <UserRound
-                    size={21}
-                    color={COLORS.primary}
-                  />
-                </View>
-
-                <View style={styles.customerInfo}>
-                  <Text
-                    numberOfLines={1}
-                    style={styles.customerName}
-                  >
-                    {c.name}
-                  </Text>
-
-                  <Text style={styles.customerId}>
-                    Pelanggan #{c.id}
-                  </Text>
-                </View>
-
-                <View style={styles.orderBadge}>
-                  <Text style={styles.orderValue}>
-                    {c.total_orders}
-                  </Text>
-
-                  <Text style={styles.orderLabel}>
-                    Order
-                  </Text>
-                </View>
-
-                <ChevronRight
-                  size={17}
-                  color={COLORS.muted}
-                />
-              </View>
-
-              {/* PEMBATAS */}
-              {(c.phone || c.address) && (
-                <View style={styles.customerDivider} />
-              )}
-
-              {/* INFORMASI KONTAK */}
-              {(c.phone || c.address) && (
-                <View style={styles.contactContainer}>
-                  {c.phone ? (
-                    <View style={styles.contactRow}>
-                      <View style={styles.contactIcon}>
-                        <Phone
-                          size={13}
-                          color={COLORS.muted}
-                        />
-                      </View>
-
-                      <Text style={styles.contactText}>
-                        {c.phone}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {c.address ? (
-                    <View style={styles.contactRow}>
-                      <View style={styles.contactIcon}>
-                        <MapPin
-                          size={13}
-                          color={COLORS.muted}
-                        />
-                      </View>
-
-                      <Text
-                        numberOfLines={2}
-                        style={styles.contactText}
-                      >
-                        {c.address}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              )}
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {/* FOOTER */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Tekan lama pelanggan untuk menghapus data.
-        </Text>
-      </View>
+      <FlashList
+        data={rows}
+        renderItem={renderCustomer}
+        keyExtractor={keyExtractor}
+        showsVerticalScrollIndicator={false}
+        refreshing={busy}
+        onRefresh={() => load(qRef.current)}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <Empty
+            title={
+              q
+                ? "Pelanggan tidak ditemukan"
+                : "Pelanggan belum tersedia"
+            }
+            desc={
+              q
+                ? "Coba gunakan kata kunci pencarian lain."
+                : "Tambahkan pelanggan pertama untuk mulai membuat pesanan."
+            }
+          />
+        }
+        ListFooterComponent={
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              Tekan lama pelanggan untuk menghapus data.
+            </Text>
+          </View>
+        }
+      />
     </Page>
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.97 }],
+  },
+
   // HEADER ACTIONS
   headerActions: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
 
   memberButton: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 5,
     paddingHorizontal: 11,
     paddingVertical: 9,
@@ -360,15 +385,15 @@ const styles = {
 
   memberButtonText: {
     fontSize: 10,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: COLORS.primary,
   },
 
   // SUMMARY
   summaryCard: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "space-between" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -392,14 +417,14 @@ const styles = {
   summaryLabel: {
     fontSize: 9,
     color: COLORS.muted,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     letterSpacing: 1,
   },
 
   summaryValue: {
     fontSize: 28,
     color: COLORS.text,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     marginTop: 5,
   },
 
@@ -413,8 +438,8 @@ const styles = {
     width: 43,
     height: 43,
     backgroundColor: COLORS.primaryLight,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
@@ -425,15 +450,15 @@ const styles = {
 
   // LIST HEADER
   listHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "space-between" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 12,
   },
 
   sectionTitle: {
     fontSize: 14,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
   },
 
@@ -455,12 +480,12 @@ const styles = {
   countText: {
     fontSize: 9,
     color: COLORS.text,
-    fontWeight: "800" as const,
+    fontWeight: "800",
   },
 
   // CUSTOMER LIST
-  customerList: {
-    gap: 0,
+  listContent: {
+    paddingBottom: 24,
   },
 
   customerCard: {
@@ -469,6 +494,7 @@ const styles = {
     borderColor: COLORS.border,
     borderRadius: 4,
     padding: 14,
+    marginBottom: 10,
     shadowColor: "#AAB3C0",
     shadowOffset: {
       width: 2,
@@ -479,9 +505,13 @@ const styles = {
     elevation: 2,
   },
 
+  customerCardPressed: {
+    opacity: 0.75,
+  },
+
   customerHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
 
@@ -489,8 +519,8 @@ const styles = {
     width: 42,
     height: 42,
     backgroundColor: COLORS.primaryLight,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
@@ -500,7 +530,7 @@ const styles = {
 
   customerName: {
     fontSize: 12,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
   },
 
@@ -512,8 +542,8 @@ const styles = {
 
   orderBadge: {
     minWidth: 49,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: COLORS.surface,
     paddingHorizontal: 8,
     paddingVertical: 5,
@@ -523,7 +553,7 @@ const styles = {
   orderValue: {
     fontSize: 12,
     color: COLORS.text,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
 
   orderLabel: {
@@ -544,8 +574,8 @@ const styles = {
   },
 
   contactRow: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
 
@@ -553,8 +583,8 @@ const styles = {
     width: 22,
     height: 22,
     backgroundColor: COLORS.surface,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 3,
   },
 
@@ -576,6 +606,6 @@ const styles = {
   footerText: {
     fontSize: 10,
     color: COLORS.muted,
-    textAlign: "center" as const,
+    textAlign: "center",
   },
-};
+});

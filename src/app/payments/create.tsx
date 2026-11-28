@@ -3,18 +3,17 @@ import { useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  Banknote,
-  Check,
-  CreditCard,
-  FileText,
-  Wallet,
-  ArrowLeftRight,
-} from "lucide-react-native";
+import ArrowLeftRight from "lucide-react-native/icons/arrow-left-right";
+import Banknote from "lucide-react-native/icons/banknote";
+import Check from "lucide-react-native/icons/check";
+import CreditCard from "lucide-react-native/icons/credit-card";
+import FileText from "lucide-react-native/icons/file-text";
+import Wallet from "lucide-react-native/icons/wallet";
 
 import { createPayment } from "../../services/payment.service";
 import type { PaymentMethod } from "../../types/database";
@@ -462,7 +461,7 @@ export default function PaymentCreate() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   hero: {
     backgroundColor: "#172554",
     padding: 19,
@@ -471,8 +470,8 @@ const styles = {
   },
 
   heroTop: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 20,
   },
@@ -481,29 +480,29 @@ const styles = {
     width: 42,
     height: 42,
     backgroundColor: "#294477",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
   heroLabel: {
     fontSize: 9,
     color: "#AFC0DF",
-    fontWeight: "800" as const,
+    fontWeight: "800",
     letterSpacing: 1,
   },
 
   heroOrder: {
     fontSize: 16,
     color: "#FFFFFF",
-    fontWeight: "900" as const,
+    fontWeight: "900",
     marginTop: 4,
   },
 
   heroTitle: {
     fontSize: 21,
     color: "#FFFFFF",
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
 
   heroDescription: {
@@ -528,20 +527,20 @@ const styles = {
   },
 
   billTop: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "space-between" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
 
   billLabel: {
     fontSize: 11,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: COLORS.muted,
   },
 
   billAmount: {
     fontSize: 24,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
     marginTop: 7,
   },
@@ -550,8 +549,8 @@ const styles = {
     width: 40,
     height: 40,
     backgroundColor: COLORS.primaryLight,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
@@ -574,7 +573,7 @@ const styles = {
 
   sectionTitle: {
     fontSize: 14,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
   },
 
@@ -606,12 +605,12 @@ const styles = {
     color: COLORS.red,
     fontSize: 10,
     marginTop: 8,
-    fontWeight: "700" as const,
+    fontWeight: "700",
   },
 
   validInfo: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginTop: 10,
   },
@@ -619,7 +618,7 @@ const styles = {
   validText: {
     fontSize: 10,
     color: COLORS.green,
-    fontWeight: "700" as const,
+    fontWeight: "700",
   },
 
   methodContainer: {
@@ -628,8 +627,8 @@ const styles = {
   },
 
   methodCard: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     backgroundColor: COLORS.white,
     borderWidth: 1,
@@ -653,8 +652,8 @@ const styles = {
     width: 40,
     height: 40,
     backgroundColor: COLORS.surface,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
@@ -664,7 +663,7 @@ const styles = {
 
   methodName: {
     fontSize: 12,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
   },
 
@@ -680,8 +679,8 @@ const styles = {
     borderRadius: 9,
     borderWidth: 1.5,
     borderColor: "#CDD3DD",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   radioSelected: {
@@ -710,9 +709,9 @@ const styles = {
   },
 
   summaryRow: {
-    flexDirection: "row" as const,
-    justifyContent: "space-between" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 14,
     gap: 8,
   },
@@ -726,14 +725,14 @@ const styles = {
   summaryValue: {
     fontSize: 11,
     color: COLORS.text,
-    fontWeight: "800" as const,
-    textAlign: "right" as const,
+    fontWeight: "800",
+    textAlign: "right",
   },
 
   remainingValue: {
     fontSize: 11,
     color: COLORS.primary,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
 
   divider: {
@@ -744,14 +743,14 @@ const styles = {
 
   totalLabel: {
     fontSize: 9,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     letterSpacing: 1,
     color: COLORS.muted,
   },
 
   totalAmount: {
     fontSize: 25,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
     marginTop: 6,
   },
@@ -762,23 +761,23 @@ const styles = {
   },
 
   cancelButton: {
-    alignItems: "center" as const,
+    alignItems: "center",
     paddingVertical: 13,
   },
 
   cancelText: {
     color: COLORS.muted,
     fontSize: 11,
-    fontWeight: "800" as const,
+    fontWeight: "800",
   },
 
   footer: {
     fontSize: 8,
-    textAlign: "center" as const,
+    textAlign: "center",
     color: "#A0A5B1",
-    fontWeight: "800" as const,
+    fontWeight: "800",
     letterSpacing: 1.5,
     marginTop: 20,
     marginBottom: 12,
   },
-};
+});

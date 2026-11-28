@@ -1,4 +1,4 @@
-import { getDatabase } from "../database";
+import { DATABASE_NAME, getDatabase } from "../database";
 
 export async function getMeta(key: string) {
   const db = await getDatabase();
@@ -9,21 +9,6 @@ export async function getMeta(key: string) {
   );
 
   return result?.value ?? null;
-}
-
-export async function setMeta(key: string, value: string) {
-  const db = await getDatabase();
-
-  await db.runAsync(
-    `INSERT INTO app_meta (key, value)
-     VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET
-       value = excluded.value`,
-    key,
-    value,
-  );
-
-  return true;
 }
 
 export async function getDatabaseInfo() {
@@ -39,7 +24,7 @@ export async function getDatabaseInfo() {
   );
 
   return {
-    name: "laundrify.db",
+    name: DATABASE_NAME,
     version,
     tables: tables.map((table) => table.name),
   };

@@ -1,25 +1,22 @@
 
 import { router, useFocusEffect } from "expo-router";
-import {
-  ArrowLeft,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Package,
-  Pencil,
-  Plus,
-  Power,
-  Search,
-  Shirt,
-  Trash2,
-  X,
-} from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { FlashList } from "@shopify/flash-list";
+import ArrowLeft from "lucide-react-native/icons/arrow-left";
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import Clock3 from "lucide-react-native/icons/clock-3";
+import Package from "lucide-react-native/icons/package";
+import Pencil from "lucide-react-native/icons/pencil";
+import Plus from "lucide-react-native/icons/plus";
+import Power from "lucide-react-native/icons/power";
+import Search from "lucide-react-native/icons/search";
+import Shirt from "lucide-react-native/icons/shirt";
+import Trash2 from "lucide-react-native/icons/trash";
+import X from "lucide-react-native/icons/x";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
@@ -27,6 +24,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   deleteService,
@@ -69,7 +67,152 @@ type Status = "all" | "active" | "inactive";
 // COMPONENT
 // ======================================================
 
+const CATEGORY_LABELS: Record<Service["category"], string> = {
+  kiloan: "Kiloan",
+  satuan: "Satuan",
+  karpet: "Karpet",
+};
+
+const ServiceCard = memo(function ServiceCard({
+  item,
+  columns,
+  onToggleStatus,
+  onRemove,
+}: {
+  item: Service;
+  columns: number;
+  onToggleStatus: (item: Service) => void;
+  onRemove: (item: Service) => void;
+}) {
+  const active = item.is_active === 1;
+  const categoryName = CATEGORY_LABELS[item.category];
+
+  return (
+    <View
+      style={[
+        styles.card,
+        columns > 1 && { flex: 1, marginHorizontal: 5 },
+      ]}
+    >
+      <Pressable
+        onPress={() =>
+          router.push({
+            pathname: "/services/form",
+            params: { id: String(item.id) },
+          })
+        }
+        style={styles.cardTop}
+      >
+        <View style={styles.iconBox}>
+          <Shirt size={21} color={C.primary} />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.name} numberOfLines={2}>
+            {item.name}
+          </Text>
+
+          <Text style={styles.meta}>
+            {categoryName} • {item.unit}
+          </Text>
+        </View>
+
+        <ChevronRight size={18} color={C.muted} />
+      </Pressable>
+
+      <View style={styles.divider} />
+
+      <View style={styles.priceRow}>
+        <View>
+          <Text style={styles.label}>HARGA LAYANAN</Text>
+          <Text style={styles.price}>{money(item.price)}</Text>
+          <Text style={styles.meta}>
+            per {item.unit}
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.badge,
+            { backgroundColor: active ? C.greenLight : C.redLight },
+          ]}
+        >
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: active ? C.green : C.red },
+            ]}
+          />
+          <Text
+            style={[
+              styles.badgeText,
+              { color: active ? C.green : C.red },
+            ]}
+          >
+            {active ? "AKTIF" : "NONAKTIF"}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.extraInfo}>
+        {item.package_type && (
+          <View style={styles.infoChip}>
+            <Package size={12} color={C.primary} />
+            <Text style={styles.infoText}>{item.package_type}</Text>
+          </View>
+        )}
+
+        <View style={styles.infoChip}>
+          <Clock3 size={12} color={C.muted} />
+          <Text style={styles.infoText}>
+            {item.estimated_hours} jam
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.actions}>
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: "/services/form",
+              params: { id: String(item.id) },
+            })
+          }
+          style={[styles.action, { backgroundColor: C.light }]}
+        >
+          <Pencil size={14} color={C.primary} />
+          <Text style={{ color: C.primary }}>Edit</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => onToggleStatus(item)}
+          style={[
+            styles.action,
+            { backgroundColor: active ? C.orangeLight : C.greenLight },
+          ]}
+        >
+          <Power
+            size={14}
+            color={active ? C.orange : C.green}
+          />
+          <Text style={{ color: active ? C.orange : C.green }}>
+            {active ? "Nonaktifkan" : "Aktifkan"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => onRemove(item)}
+          style={styles.deleteButton}
+        >
+          <Trash2 size={16} color={C.red} />
+        </Pressable>
+      </View>
+    </View>
+  );
+});
+
 export default function Services() {
+  const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const columns = width >= 900 ? 3 : width >= 600 ? 2 : 1;
@@ -95,263 +238,180 @@ export default function Services() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const filtersRef = useRef({ search, category, status, page });
+  const hasLoadedOnceRef = useRef(false);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    filtersRef.current = { search, category, status, page };
+  }, [search, category, status, page]);
+
   // ====================================================
   // LOAD SERVICES
   // ====================================================
 
-  const load = useCallback(async (targetPage = 1) => {
-    try {
-      setLoading(true);
+  const load = useCallback(
+    async (
+      targetPage = 1,
+      searchValue = filtersRef.current.search,
+      categoryValue = filtersRef.current.category,
+      statusValue = filtersRef.current.status,
+    ) => {
+      const requestId = ++requestIdRef.current;
 
-      const [result, statistics] = await Promise.all([
-        getServicesPaginated({
-          page: targetPage,
-          limit: PAGE_SIZE,
-          search,
-          category,
-          status,
-        }),
-        getServiceStatistics(),
-      ]);
+      try {
+        setLoading(true);
 
-      setRows(result.data);
-      setPage(result.page);
-      setTotalPages(result.totalPages);
-      setTotal(result.total);
-      setStats(statistics);
-    } catch (error: any) {
-      Alert.alert(
-        "Gagal memuat layanan",
-        error?.message ?? "Terjadi kesalahan."
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [search, category, status]);
+        const [result, statistics] = await Promise.all([
+          getServicesPaginated({
+            page: targetPage,
+            limit: PAGE_SIZE,
+            search: searchValue,
+            category: categoryValue,
+            status: statusValue,
+          }),
+          getServiceStatistics(),
+        ]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load(1);
-    }, [load])
+        if (requestId !== requestIdRef.current) return;
+
+        setRows(result.data);
+        setPage(result.page);
+        setTotalPages(result.totalPages);
+        setTotal(result.total);
+        setStats(statistics);
+        hasLoadedOnceRef.current = true;
+      } catch (error: any) {
+        if (requestId === requestIdRef.current) {
+          Alert.alert(
+            "Gagal memuat layanan",
+            error?.message ?? "Terjadi kesalahan.",
+          );
+        }
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [],
   );
 
-  // ====================================================
-  // SEARCH DEBOUNCE
-  // ====================================================
+  // Hanya berjalan saat layar kembali fokus (tidak re-trigger per keystroke)
+  useFocusEffect(
+    useCallback(() => {
+      load(filtersRef.current.page);
+    }, [load]),
+  );
 
+  // Debounce pencarian setelah render awal
   useEffect(() => {
+    if (!hasLoadedOnceRef.current) return;
     const timer = setTimeout(() => {
-      load(1);
-    }, 350);
+      load(1, search, filtersRef.current.category, filtersRef.current.status);
+    }, 300);
 
     return () => clearTimeout(timer);
-  }, [search, category, status, load]);
+  }, [search, load]);
+
+  // Reload langsung saat chip kategori/status berubah
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return;
+    load(1, filtersRef.current.search, category, status);
+  }, [category, status, load]);
 
   // ====================================================
   // REFRESH
   // ====================================================
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setRefreshing(true);
     await load(1);
-  };
+  }, [load]);
 
   // ====================================================
   // STATUS
   // ====================================================
 
-  const toggleStatus = (item: Service) => {
-    const active = item.is_active === 1;
+  const toggleStatus = useCallback(
+    (item: Service) => {
+      const active = item.is_active === 1;
 
-    Alert.alert(
-      active ? "Nonaktifkan layanan?" : "Aktifkan layanan?",
-      item.name,
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Lanjutkan",
-          onPress: async () => {
-            try {
-              await setServiceActive(item.id, !active);
-              await load(page);
-            } catch (error: any) {
-              Alert.alert("Gagal", error.message);
-            }
+      Alert.alert(
+        active ? "Nonaktifkan layanan?" : "Aktifkan layanan?",
+        item.name,
+        [
+          { text: "Batal", style: "cancel" },
+          {
+            text: "Lanjutkan",
+            onPress: async () => {
+              try {
+                await setServiceActive(item.id, !active);
+                await load(filtersRef.current.page);
+              } catch (error: any) {
+                Alert.alert("Gagal", error.message);
+              }
+            },
           },
-        },
-      ]
-    );
-  };
+        ],
+      );
+    },
+    [load],
+  );
 
   // ====================================================
   // DELETE
   // ====================================================
 
-  const remove = (item: Service) => {
-    Alert.alert(
-      "Hapus layanan",
-      `Hapus "${item.name}" secara permanen?`,
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Hapus",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteService(item.id);
+  const remove = useCallback(
+    (item: Service) => {
+      Alert.alert(
+        "Hapus layanan",
+        `Hapus "${item.name}" secara permanen?`,
+        [
+          { text: "Batal", style: "cancel" },
+          {
+            text: "Hapus",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deleteService(item.id);
+                const currentPage = filtersRef.current.page;
+                const nextPage =
+                  rows.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
 
-              const nextPage =
-                rows.length === 1 && page > 1 ? page - 1 : page;
+                await load(nextPage);
 
-              await load(nextPage);
-
-              Alert.alert("Berhasil", "Layanan berhasil dihapus.");
-            } catch (error: any) {
-              Alert.alert("Gagal menghapus", error.message);
-            }
+                Alert.alert("Berhasil", "Layanan berhasil dihapus.");
+              } catch (error: any) {
+                Alert.alert("Gagal menghapus", error.message);
+              }
+            },
           },
-        },
-      ]
-    );
-  };
+        ],
+      );
+    },
+    [load, rows.length],
+  );
 
   // ====================================================
   // CARD
   // ====================================================
 
-  const renderItem = ({ item }: { item: Service }) => {
-    const active = item.is_active === 1;
+  const renderItem = useCallback(
+    ({ item }: { item: Service }) => (
+      <ServiceCard
+        item={item}
+        columns={columns}
+        onToggleStatus={toggleStatus}
+        onRemove={remove}
+      />
+    ),
+    [columns, toggleStatus, remove],
+  );
 
-    const categoryName = {
-      kiloan: "Kiloan",
-      satuan: "Satuan",
-      karpet: "Karpet",
-    }[item.category];
-
-    return (
-      <View
-        style={[
-          styles.card,
-          columns > 1 && { flex: 1, maxWidth: `${100 / columns}%` },
-        ]}
-      >
-        <Pressable
-          onPress={() =>
-            router.push({
-              pathname: "/services/form",
-              params: { id: String(item.id) },
-            })
-          }
-          style={styles.cardTop}
-        >
-          <View style={styles.iconBox}>
-            <Shirt size={21} color={C.primary} />
-          </View>
-
-          <View style={{ flex: 1 }}>
-            <Text style={styles.name} numberOfLines={2}>
-              {item.name}
-            </Text>
-
-            <Text style={styles.meta}>
-              {categoryName} • {item.unit}
-            </Text>
-          </View>
-
-          <ChevronRight size={18} color={C.muted} />
-        </Pressable>
-
-        <View style={styles.divider} />
-
-        <View style={styles.priceRow}>
-          <View>
-            <Text style={styles.label}>HARGA LAYANAN</Text>
-            <Text style={styles.price}>{money(item.price)}</Text>
-            <Text style={styles.meta}>
-              per {item.unit}
-            </Text>
-          </View>
-
-          <View
-            style={[
-              styles.badge,
-              { backgroundColor: active ? C.greenLight : C.redLight },
-            ]}
-          >
-            <View
-              style={[
-                styles.dot,
-                { backgroundColor: active ? C.green : C.red },
-              ]}
-            />
-            <Text
-              style={[
-                styles.badgeText,
-                { color: active ? C.green : C.red },
-              ]}
-            >
-              {active ? "AKTIF" : "NONAKTIF"}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.extraInfo}>
-          {item.package_type && (
-            <View style={styles.infoChip}>
-              <Package size={12} color={C.primary} />
-              <Text style={styles.infoText}>{item.package_type}</Text>
-            </View>
-          )}
-
-          <View style={styles.infoChip}>
-            <Clock3 size={12} color={C.muted} />
-            <Text style={styles.infoText}>
-              {item.estimated_hours} jam
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.actions}>
-          <Pressable
-            onPress={() =>
-              router.push({
-                pathname: "/services/form",
-                params: { id: String(item.id) },
-              })
-            }
-            style={[styles.action, { backgroundColor: C.light }]}
-          >
-            <Pencil size={14} color={C.primary} />
-            <Text style={{ color: C.primary }}>Edit</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => toggleStatus(item)}
-            style={[
-              styles.action,
-              { backgroundColor: active ? C.orangeLight : C.greenLight },
-            ]}
-          >
-            <Power
-              size={14}
-              color={active ? C.orange : C.green}
-            />
-            <Text style={{ color: active ? C.orange : C.green }}>
-              {active ? "Nonaktifkan" : "Aktifkan"}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => remove(item)}
-            style={styles.deleteButton}
-          >
-            <Trash2 size={16} color={C.red} />
-          </Pressable>
-        </View>
-      </View>
-    );
-  };
+  const keyExtractor = useCallback((item: Service) => String(item.id), []);
 
   // ====================================================
   // HEADER
@@ -490,20 +550,25 @@ export default function Services() {
   // RENDER
   // ====================================================
 
+  const listContentStyle = useMemo(
+    () => [
+      styles.content,
+      { paddingTop: Math.max(insets.top, 16) },
+      landscape && { paddingHorizontal: 24 },
+    ],
+    [insets.top, landscape],
+  );
+
   return (
     <View style={styles.container}>
-      <FlatList
+      <FlashList
         key={columns}
         data={rows}
         renderItem={renderItem}
-        keyExtractor={(item) => String(item.id)}
+        keyExtractor={keyExtractor}
         numColumns={columns}
-        columnWrapperStyle={columns > 1 ? styles.columnWrapper : undefined}
         ListHeaderComponent={Header}
-        contentContainerStyle={[
-          styles.content,
-          landscape && { paddingHorizontal: 24 },
-        ]}
+        contentContainerStyle={listContentStyle}
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
         onRefresh={refresh}

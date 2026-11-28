@@ -66,9 +66,9 @@ export async function findOrCreateCustomer(
     if (existingByPhone) return existingByPhone as Customer;
   }
 
-  // 2. Cari berdasarkan nama persis
+  // 2. Cari berdasarkan nama persis (menggunakan index COLLATE NOCASE)
   const existingByName = await db.getFirstAsync(
-    `SELECT * FROM customers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND deleted_at IS NULL LIMIT 1`,
+    `SELECT * FROM customers WHERE name = ? COLLATE NOCASE AND deleted_at IS NULL LIMIT 1`,
     trimmedName,
   );
   if (existingByName) return existingByName as Customer;
@@ -157,22 +157,14 @@ export async function searchCustomers(options?: {
   const db = await getDatabase();
 
   const pageSize = Math.min(Math.max(options?.pageSize ?? 5, 1), 50);
+  const requestedPage = Math.max(options?.page ?? 0, 0);
   const search = (options?.search ?? "").replace(/\s+/g, " ").trim();
   const filter = buildCustomerFilter(search);
 
-  const countRow = await db.getFirstAsync<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM customers WHERE ${filter.where}`,
-    ...filter.params,
-  );
-
-  const total = countRow?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(Math.max(options?.page ?? 0, 0), totalPages - 1);
-  const offset = page * pageSize;
-
-  const rows = search
-    ? await db.getAllAsync<Customer>(
-        `SELECT *
+  const runPageQuery = async (offset: number) => {
+    if (search) {
+      return db.getAllAsync<Customer & { total_count: number }>(
+        `SELECT *, COUNT(*) OVER() AS total_count
          FROM customers
          WHERE ${filter.where}
          ORDER BY
@@ -184,16 +176,40 @@ export async function searchCustomers(options?: {
         `${escapeLike(search)}%`,
         pageSize,
         offset,
-      )
-    : await db.getAllAsync<Customer>(
-        `SELECT *
-         FROM customers
-         WHERE ${filter.where}
-         ORDER BY id DESC
-         LIMIT ? OFFSET ?`,
-        pageSize,
-        offset,
       );
+    }
+
+    return db.getAllAsync<Customer & { total_count: number }>(
+      `SELECT *, COUNT(*) OVER() AS total_count
+       FROM customers
+       WHERE ${filter.where}
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
+      pageSize,
+      offset,
+    );
+  };
+
+  let page = requestedPage;
+  let rawRows = await runPageQuery(page * pageSize);
+
+  let total = rawRows.length > 0 ? Number(rawRows[0].total_count) : 0;
+
+  if (rawRows.length === 0 && page > 0) {
+    const countRow = await db.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM customers WHERE ${filter.where}`,
+      ...filter.params,
+    );
+    total = countRow?.total ?? 0;
+    const maxPages = Math.max(1, Math.ceil(total / pageSize));
+    page = Math.min(requestedPage, maxPages - 1);
+    if (total > 0) {
+      rawRows = await runPageQuery(page * pageSize);
+    }
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const rows: Customer[] = rawRows.map(({ total_count: _totalCount, ...customer }) => customer);
 
   return { rows, total, page, pageSize, totalPages };
 }

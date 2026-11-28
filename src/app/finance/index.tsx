@@ -1,40 +1,36 @@
 
-import React, { useCallback, useState } from "react";
+import { FlashList } from "@shopify/flash-list";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
 
 import { useFocusEffect, router } from "expo-router";
 
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Tags,
-  Wallet,
-  TrendingUp,
-  TrendingDown,
-} from "lucide-react-native";
+import ArrowDownLeft from "lucide-react-native/icons/arrow-down-left";
+import ArrowUpRight from "lucide-react-native/icons/arrow-up-right";
+import Tags from "lucide-react-native/icons/tags";
+import TrendingDown from "lucide-react-native/icons/trending-down";
+import TrendingUp from "lucide-react-native/icons/trending-up";
+import Wallet from "lucide-react-native/icons/wallet";
 
 import { getTransactions } from "../../services/finance.service";
-import { getCashCategories } from "../../repositories/cash-category.repository";
-
-import type { CashCategory } from "../../types/database";
+import { getFinanceSummary } from "../../repositories/finance.repository";
+import { formatDateTimeShort } from "../../utils/format";
 
 import {
   AddButton,
-  Card,
-  C,
   Empty,
   Page,
   money,
 } from "../../components/ui";
 
-// ==========================================
-// FLAT DESIGN COLORS
-// ==========================================
+const PAGE_SIZE = 40;
 
 const UI = {
   background: "#F1F3F6",
@@ -51,30 +47,11 @@ const UI = {
   blueLight: "#EAF0FF",
 };
 
-// ==========================================
-// SECTION TITLE
-// ==========================================
+const SectionTitle = memo(function SectionTitle({ title }: { title: string }) {
+  return <Text style={styles.sectionTitle}>{title}</Text>;
+});
 
-function SectionTitle({ title }: { title: string }) {
-  return (
-    <Text
-      style={{
-        fontSize: 14,
-        fontWeight: "900",
-        color: UI.text,
-        letterSpacing: 0.2,
-      }}
-    >
-      {title}
-    </Text>
-  );
-}
-
-// ==========================================
-// SUMMARY CARD
-// ==========================================
-
-function SummaryCard({
+const SummaryCard = memo(function SummaryCard({
   title,
   amount,
   type,
@@ -88,38 +65,9 @@ function SummaryCard({
   const background = isIncome ? UI.greenLight : UI.redLight;
 
   return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: UI.surface,
-        borderWidth: 1,
-        borderColor: UI.border,
-        borderRadius: 5,
-        padding: 13,
-        shadowColor: "#172033",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.035,
-        shadowRadius: 4,
-        elevation: 1,
-      }}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 7,
-        }}
-      >
-        <View
-          style={{
-            width: 27,
-            height: 27,
-            backgroundColor: background,
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 4,
-          }}
-        >
+    <View style={styles.summaryCard}>
+      <View style={styles.summaryTopRow}>
+        <View style={[styles.summaryIconBox, { backgroundColor: background }]}>
           {isIncome ? (
             <ArrowDownLeft size={16} color={color} />
           ) : (
@@ -127,34 +75,12 @@ function SummaryCard({
           )}
         </View>
 
-        <Text
-          style={{
-            fontSize: 10,
-            fontWeight: "700",
-            color: UI.muted,
-          }}
-        >
-          {title}
-        </Text>
+        <Text style={styles.summaryLabel}>{title}</Text>
       </View>
 
-      <View
-        style={{
-          backgroundColor: UI.inset,
-          borderWidth: 1,
-          borderColor: UI.border,
-          paddingHorizontal: 9,
-          paddingVertical: 10,
-          marginTop: 13,
-          borderRadius: 4,
-        }}
-      >
+      <View style={styles.summaryInset}>
         <Text
-          style={{
-            fontSize: 14,
-            fontWeight: "900",
-            color,
-          }}
+          style={[styles.summaryAmount, { color }]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
@@ -163,43 +89,16 @@ function SummaryCard({
       </View>
     </View>
   );
-}
+});
 
-// ==========================================
-// TRANSACTION ITEM
-// ==========================================
-
-function TransactionItem({ transaction }: { transaction: any }) {
+const TransactionItem = memo(function TransactionItem({ transaction }: { transaction: any }) {
   const isIncome = transaction.direction === "income";
   const color = isIncome ? UI.green : UI.red;
   const background = isIncome ? UI.greenLight : UI.redLight;
 
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: UI.surface,
-        padding: 13,
-        borderRadius: 5,
-        borderWidth: 1,
-        borderColor: UI.border,
-        marginBottom: 9,
-      }}
-    >
-      {/* ICON */}
-
-      <View
-        style={{
-          width: 39,
-          height: 39,
-          backgroundColor: background,
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 4,
-          marginRight: 11,
-        }}
-      >
+    <View style={styles.txCard}>
+      <View style={[styles.txIcon, { backgroundColor: background }]}>
         {isIncome ? (
           <ArrowDownLeft size={20} color={color} strokeWidth={2.5} />
         ) : (
@@ -207,136 +106,179 @@ function TransactionItem({ transaction }: { transaction: any }) {
         )}
       </View>
 
-      {/* INFORMATION */}
-
       <View style={{ flex: 1 }}>
-        <Text
-          style={{
-            fontSize: 12,
-            fontWeight: "800",
-            color: UI.text,
-          }}
-          numberOfLines={1}
-        >
+        <Text style={styles.txCategory} numberOfLines={1}>
           {transaction.category_name || "Transaksi"}
         </Text>
 
-        <Text
-          style={{
-            fontSize: 10,
-            color: UI.muted,
-            marginTop: 5,
-          }}
-          numberOfLines={2}
-        >
+        <Text style={styles.txDesc} numberOfLines={2}>
           {transaction.description || "Tidak ada keterangan"}
         </Text>
 
         {transaction.transaction_date ? (
-          <Text
-            style={{
-              fontSize: 9,
-              color: UI.muted,
-              marginTop: 4,
-            }}
-          >
-            {transaction.transaction_date}
+          <Text style={styles.txDate}>
+            {formatDateTimeShort(transaction.transaction_date)}
           </Text>
         ) : null}
       </View>
 
-      {/* AMOUNT */}
-
-      <View
-        style={{
-          backgroundColor: background,
-          paddingHorizontal: 9,
-          paddingVertical: 8,
-          borderRadius: 4,
-          marginLeft: 7,
-          maxWidth: "43%",
-        }}
-      >
-        <Text
-          style={{
-            fontSize: 11,
-            fontWeight: "900",
-            color,
-            textAlign: "right",
-          }}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-        >
+      <View style={[styles.txAmountBox, { backgroundColor: background }]}>
+        <Text style={[styles.txAmount, { color }]} numberOfLines={1} adjustsFontSizeToFit>
           {isIncome ? "+" : "-"}{money(transaction.amount)}
         </Text>
       </View>
     </View>
   );
-}
-
-// ==========================================
-// FINANCE PAGE
-// ==========================================
+});
 
 export default function Finance() {
   const [rows, setRows] = useState<any[]>([]);
-  const [cats, setCats] = useState<CashCategory[]>([]);
+  const [summary, setSummary] = useState({
+    income: 0,
+    expense: 0,
+    netCashFlow: 0,
+    totalTransactions: 0,
+  });
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const rowCountRef = useRef(0);
 
-  // ========================================
-  // LOAD DATA
-  // ========================================
+  useEffect(() => {
+    rowCountRef.current = rows.length;
+  }, [rows.length]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (mode: "initial" | "refresh" | "more" = "initial") => {
     try {
-      setLoading(true);
+      if (mode === "more") setLoadingMore(true);
+      else if (mode === "refresh") setRefreshing(true);
+      else setLoading(true);
 
-      const [transactions, categories] = await Promise.all([
-        getTransactions({ limit: 100 }),
-        getCashCategories(undefined, true),
-      ]);
+      const offset = mode === "more" ? rowCountRef.current : 0;
 
-      setRows(transactions);
-      setCats(categories);
+      if (mode === "more") {
+        const fetched = await getTransactions({ limit: PAGE_SIZE + 1, offset });
+        const nextHasMore = fetched.length > PAGE_SIZE;
+        setRows((prev) => [...prev, ...(nextHasMore ? fetched.slice(0, PAGE_SIZE) : fetched)]);
+        setHasMore(nextHasMore);
+      } else {
+        const [fetched, summaryData] = await Promise.all([
+          getTransactions({ limit: PAGE_SIZE + 1, offset: 0 }),
+          getFinanceSummary(),
+        ]);
+        const nextHasMore = fetched.length > PAGE_SIZE;
+        setRows(nextHasMore ? fetched.slice(0, PAGE_SIZE) : fetched);
+        setHasMore(nextHasMore);
+        setSummary(summaryData);
+      }
     } catch (e: any) {
       Alert.alert(
         "Gagal memuat keuangan",
-        e?.message || "Terjadi kesalahan."
+        e?.message || "Terjadi kesalahan.",
       );
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      setLoadingMore(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load])
+      load(rowCountRef.current > 0 ? "refresh" : "initial");
+    }, [load]),
   );
 
-  // ========================================
-  // CALCULATE FINANCE
-  // ========================================
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loadingMore || loading) return;
+    load("more");
+  }, [hasMore, loadingMore, loading, load]);
 
-  const income = rows
-    .filter((r) => r.direction === "income")
-    .reduce((a, r) => a + Number(r.amount || 0), 0);
+  const keyExtractor = useCallback((item: any) => String(item.id), []);
+  const renderTx = useCallback(
+    ({ item }: { item: any }) => <TransactionItem transaction={item} />,
+    [],
+  );
 
-  const expense = rows
-    .filter((r) => r.direction === "expense")
-    .reduce((a, r) => a + Number(r.amount || 0), 0);
+  const { income, expense, netCashFlow: balance, totalTransactions } = summary;
 
-  const balance = income - expense;
+  const listHeader = useMemo(
+    () => (
+      <>
+        <View style={{ marginBottom: 16 }}>
+          <SectionTitle title="Ringkasan keuangan" />
 
-  // ========================================
-  // MAIN UI
-  // ========================================
+          <View style={styles.summaryRow}>
+            <SummaryCard title="Pemasukan" amount={income} type="income" />
+            <SummaryCard title="Pengeluaran" amount={expense} type="expense" />
+          </View>
+        </View>
+
+        <View style={styles.balanceCard}>
+          <View style={styles.balanceHeaderRow}>
+            <View>
+              <Text style={styles.balanceTitle}>ARUS KAS BERSIH</Text>
+              <Text style={styles.balanceSubtitle}>
+                Berdasarkan {totalTransactions} transaksi tercatat
+              </Text>
+            </View>
+
+            <View style={styles.balanceWalletIcon}>
+              <Wallet size={19} color={UI.primary} />
+            </View>
+          </View>
+
+          <View style={styles.balanceInset}>
+            <Text
+              style={[styles.balanceAmount, { color: balance >= 0 ? UI.green : UI.red }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {money(balance)}
+            </Text>
+
+            <View style={styles.balanceStatusRow}>
+              {balance >= 0 ? (
+                <TrendingUp size={13} color={UI.green} />
+              ) : (
+                <TrendingDown size={13} color={UI.red} />
+              )}
+
+              <Text style={[styles.balanceStatusText, { color: balance >= 0 ? UI.green : UI.red }]}>
+                {balance >= 0 ? "Surplus" : "Defisit"} keuangan
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.txHeaderRow}>
+          <View>
+            <SectionTitle title="Transaksi terbaru" />
+            <Text style={styles.txCountSubtitle}>
+              {rows.length} dari {totalTransactions} transaksi dimuat
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => router.push("/finance/categories")}
+            style={styles.categoryButton}
+          >
+            <Tags size={14} color={UI.primary} />
+            <Text style={styles.categoryButtonText}>Kategori</Text>
+          </Pressable>
+        </View>
+      </>
+    ),
+    [income, expense, balance, totalTransactions, rows.length],
+  );
 
   return (
     <Page
       title="Keuangan"
       subtitle="Catat arus kas bisnis laundry"
+      scroll={false}
       right={
         <AddButton
           title="Tambah"
@@ -344,263 +286,223 @@ export default function Finance() {
         />
       }
     >
-      {/* ================================== */}
-      {/* FINANCE SUMMARY */}
-      {/* ================================== */}
-
-      <View style={{ marginBottom: 16 }}>
-        <SectionTitle title="Ringkasan keuangan" />
-
-        <View
-          style={{
-            flexDirection: "row",
-            gap: 9,
-            marginTop: 12,
-          }}
-        >
-          <SummaryCard
-            title="Pemasukan"
-            amount={income}
-            type="income"
-          />
-
-          <SummaryCard
-            title="Pengeluaran"
-            amount={expense}
-            type="expense"
-          />
-        </View>
-      </View>
-
-      {/* ================================== */}
-      {/* NET BALANCE */}
-      {/* ================================== */}
-
-      <View
-        style={{
-          backgroundColor: UI.surface,
-          borderWidth: 1,
-          borderColor: UI.border,
-          borderRadius: 5,
-          padding: 15,
-          marginBottom: 20,
-          shadowColor: "#172033",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.035,
-          shadowRadius: 4,
-          elevation: 1,
-        }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <View>
-            <Text
-              style={{
-                fontSize: 11,
-                fontWeight: "700",
-                color: UI.muted,
-              }}
-            >
-              ARUS KAS BERSIH
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 10,
-                color: UI.muted,
-                marginTop: 4,
-              }}
-            >
-              Berdasarkan 100 transaksi terakhir
-            </Text>
-          </View>
-
-          <View
-            style={{
-              width: 35,
-              height: 35,
-              backgroundColor: UI.blueLight,
-              justifyContent: "center",
-              alignItems: "center",
-              borderRadius: 4,
-            }}
-          >
-            <Wallet size={19} color={UI.primary} />
-          </View>
-        </View>
-
-        {/* INSET BALANCE */}
-
-        <View
-          style={{
-            backgroundColor: UI.inset,
-            borderWidth: 1,
-            borderColor: UI.border,
-            borderRadius: 4,
-            padding: 14,
-            marginTop: 14,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 22,
-              fontWeight: "900",
-              color: balance >= 0 ? UI.green : UI.red,
-            }}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            {money(balance)}
-          </Text>
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 5,
-              marginTop: 7,
-            }}
-          >
-            {balance >= 0 ? (
-              <TrendingUp size={13} color={UI.green} />
-            ) : (
-              <TrendingDown size={13} color={UI.red} />
-            )}
-
-            <Text
-              style={{
-                fontSize: 10,
-                fontWeight: "700",
-                color: balance >= 0 ? UI.green : UI.red,
-              }}
-            >
-              {balance >= 0 ? "Surplus" : "Defisit"} keuangan
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* ================================== */}
-      {/* TRANSACTION HEADER */}
-      {/* ================================== */}
-
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <View>
-          <SectionTitle title="Transaksi terbaru" />
-
-          <Text
-            style={{
-              fontSize: 10,
-              color: UI.muted,
-              marginTop: 4,
-            }}
-          >
-            {rows.length} transaksi dimuat
-          </Text>
-        </View>
-
-        <Pressable
-          onPress={() => router.push("/finance/categories")}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            backgroundColor: UI.blueLight,
-            borderWidth: 1,
-            borderColor: "#D9E3FF",
-            paddingHorizontal: 11,
-            paddingVertical: 9,
-            borderRadius: 4,
-          }}
-        >
-          <Tags size={14} color={UI.primary} />
-
-          <Text
-            style={{
-              fontSize: 10,
-              color: UI.primary,
-              fontWeight: "800",
-            }}
-          >
-            Kategori
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* ================================== */}
-      {/* TRANSACTION LIST */}
-      {/* ================================== */}
-
       {loading ? (
-        <View
-          style={{
-            backgroundColor: UI.inset,
-            borderWidth: 1,
-            borderColor: UI.border,
-            padding: 22,
-            alignItems: "center",
-            borderRadius: 5,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 11,
-              color: UI.muted,
-            }}
-          >
-            Memuat transaksi...
-          </Text>
+        <View style={styles.loadingBox}>
+          <ActivityIndicator color={UI.primary} />
+          <Text style={styles.loadingText}>Memuat transaksi...</Text>
         </View>
-      ) : rows.length === 0 ? (
-        <Empty title="Belum ada transaksi" />
       ) : (
-        rows.map((transaction) => (
-          <TransactionItem
-            key={transaction.id}
-            transaction={transaction}
-          />
-        ))
-      )}
-
-      {/* ================================== */}
-      {/* FOOTER */}
-      {/* ================================== */}
-
-      {!loading && rows.length > 0 && (
-        <View
-          style={{
-            backgroundColor: UI.inset,
-            borderWidth: 1,
-            borderColor: UI.border,
-            padding: 12,
-            borderRadius: 4,
-            marginTop: 5,
-            marginBottom: 15,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 10,
-              color: UI.muted,
-              textAlign: "center",
-            }}
-          >
-            Menampilkan maksimal 100 transaksi terbaru.
-          </Text>
-        </View>
+        <FlashList
+          data={rows}
+          renderItem={renderTx}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={listHeader}
+          showsVerticalScrollIndicator={false}
+          refreshing={refreshing}
+          onRefresh={() => load("refresh")}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.4}
+          contentContainerStyle={{ paddingBottom: 24 }}
+          ListEmptyComponent={<Empty title="Belum ada transaksi" />}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={{ paddingVertical: 14, alignItems: "center" }}>
+                <ActivityIndicator color={UI.primary} />
+              </View>
+            ) : undefined
+          }
+        />
       )}
     </Page>
   );
 }
+
+const styles = StyleSheet.create({
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: UI.text,
+    letterSpacing: 0.2,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    gap: 9,
+    marginTop: 12,
+  },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: UI.surface,
+    borderWidth: 1,
+    borderColor: UI.border,
+    borderRadius: 5,
+    padding: 13,
+  },
+  summaryTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  summaryIconBox: {
+    width: 27,
+    height: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
+  },
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: UI.muted,
+  },
+  summaryInset: {
+    backgroundColor: UI.inset,
+    borderWidth: 1,
+    borderColor: UI.border,
+    paddingHorizontal: 9,
+    paddingVertical: 10,
+    marginTop: 13,
+    borderRadius: 4,
+  },
+  summaryAmount: {
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  balanceCard: {
+    backgroundColor: UI.surface,
+    borderWidth: 1,
+    borderColor: UI.border,
+    borderRadius: 5,
+    padding: 15,
+    marginBottom: 20,
+  },
+  balanceHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  balanceTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: UI.muted,
+  },
+  balanceSubtitle: {
+    fontSize: 10,
+    color: UI.muted,
+    marginTop: 4,
+  },
+  balanceWalletIcon: {
+    width: 35,
+    height: 35,
+    backgroundColor: UI.blueLight,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 4,
+  },
+  balanceInset: {
+    backgroundColor: UI.inset,
+    borderWidth: 1,
+    borderColor: UI.border,
+    borderRadius: 4,
+    padding: 14,
+    marginTop: 14,
+  },
+  balanceAmount: {
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  balanceStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 7,
+  },
+  balanceStatusText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  txHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  txCountSubtitle: {
+    fontSize: 10,
+    color: UI.muted,
+    marginTop: 4,
+  },
+  categoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: UI.blueLight,
+    borderWidth: 1,
+    borderColor: "#D9E3FF",
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 4,
+  },
+  categoryButtonText: {
+    fontSize: 10,
+    color: UI.primary,
+    fontWeight: "800",
+  },
+  txCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: UI.surface,
+    padding: 13,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: UI.border,
+    marginBottom: 9,
+  },
+  txIcon: {
+    width: 39,
+    height: 39,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
+    marginRight: 11,
+  },
+  txCategory: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: UI.text,
+  },
+  txDesc: {
+    fontSize: 10,
+    color: UI.muted,
+    marginTop: 5,
+  },
+  txDate: {
+    fontSize: 9,
+    color: UI.muted,
+    marginTop: 4,
+  },
+  txAmountBox: {
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    borderRadius: 4,
+    marginLeft: 7,
+    maxWidth: "43%",
+  },
+  txAmount: {
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  loadingBox: {
+    backgroundColor: UI.inset,
+    borderWidth: 1,
+    borderColor: UI.border,
+    padding: 22,
+    alignItems: "center",
+    borderRadius: 5,
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 11,
+    color: UI.muted,
+  },
+});

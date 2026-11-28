@@ -1,12 +1,10 @@
 import { router, useFocusEffect } from "expo-router";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  PencilLine,
-  UsersRound,
-  X,
-} from "lucide-react-native";
+import Check from "lucide-react-native/icons/check";
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import PencilLine from "lucide-react-native/icons/pencil-line";
+import UsersRound from "lucide-react-native/icons/users-round";
+import X from "lucide-react-native/icons/x";
 import React, {
   memo,
   useCallback,

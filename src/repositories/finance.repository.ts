@@ -1,7 +1,9 @@
 import { getDatabase } from "../database";
+import { getLocalYearRangeUtc } from "../utils/format";
 
-export async function getFinanceSummary(startDate: string, endDate: string) {
+export async function getFinanceSummary(startDate?: string, endDate?: string) {
   const db = await getDatabase();
+  const hasRange = Boolean(startDate && endDate);
 
   const result = await db.getFirstAsync<{
     income: number;
@@ -23,10 +25,8 @@ export async function getFinanceSummary(startDate: string, endDate: string) {
 
      FROM cash_transactions
      WHERE is_void = 0
-       AND transaction_date >= ?
-       AND transaction_date < ?`,
-    startDate,
-    endDate,
+       ${hasRange ? "AND transaction_date >= ? AND transaction_date < ?" : ""}`,
+    ...(hasRange ? [startDate!, endDate!] : []),
   );
 
   const income = result?.income ?? 0;
@@ -63,19 +63,22 @@ export async function getFinanceByCategory(startDate: string, endDate: string) {
 
 export async function getMonthlyFinance(year: number) {
   const db = await getDatabase();
+  const { start, end } = getLocalYearRangeUtc(year);
 
   return db.getAllAsync(
     `SELECT
-      strftime('%m', transaction_date) AS month,
+      strftime('%m', transaction_date, 'localtime') AS month,
       SUM(CASE WHEN direction = 'income'
         THEN amount ELSE 0 END) AS income,
       SUM(CASE WHEN direction = 'expense'
         THEN amount ELSE 0 END) AS expense
      FROM cash_transactions
      WHERE is_void = 0
-       AND strftime('%Y', transaction_date) = ?
-     GROUP BY strftime('%m', transaction_date)
+       AND transaction_date >= ?
+       AND transaction_date < ?
+     GROUP BY strftime('%m', transaction_date, 'localtime')
      ORDER BY month ASC`,
-    String(year),
+    start,
+    end,
   );
 }

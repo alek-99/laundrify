@@ -1,23 +1,21 @@
 
 import { router } from "expo-router";
-import {
-  ArrowDownUp,
-  ArrowLeft,
-  Banknote,
-  BookOpen,
-  CheckCircle2,
-  ClipboardList,
-  Download,
-  FileBarChart,
-  Info,
-  Package,
-  Settings,
-  Shirt,
-  ShoppingBag,
-  Users,
-  Wallet,
-  Workflow,
-} from "lucide-react-native";
+import ArrowDownUp from "lucide-react-native/icons/arrow-down-up";
+import ArrowLeft from "lucide-react-native/icons/arrow-left";
+import Banknote from "lucide-react-native/icons/banknote";
+import BookOpen from "lucide-react-native/icons/book-open";
+import CheckCircle2 from "lucide-react-native/icons/circle-check";
+import ClipboardList from "lucide-react-native/icons/clipboard-list";
+import Download from "lucide-react-native/icons/download";
+import FileBarChart from "lucide-react-native/icons/file-chart-column-increasing";
+import Info from "lucide-react-native/icons/info";
+import Package from "lucide-react-native/icons/package";
+import Settings from "lucide-react-native/icons/settings";
+import Shirt from "lucide-react-native/icons/shirt";
+import ShoppingBag from "lucide-react-native/icons/shopping-bag";
+import Users from "lucide-react-native/icons/users";
+import Wallet from "lucide-react-native/icons/wallet";
+import Workflow from "lucide-react-native/icons/workflow";
 import type { ComponentType } from "react";
 import {
   Pressable,
@@ -27,6 +25,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const C = {
   background: "#F1F3F7",
@@ -202,6 +201,8 @@ function InfoCard({
 }
 
 export default function GuideScreen() {
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.screen}>
       <StatusBar
@@ -210,7 +211,7 @@ export default function GuideScreen() {
       />
 
       {/* HEADER */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
         <Pressable
           onPress={() => router.back()}
           style={({ pressed }) => [
@@ -238,7 +239,10 @@ export default function GuideScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: Math.max(insets.bottom + 16, 36) },
+        ]}
       >
         {/* HERO */}
         <View style={styles.hero}>

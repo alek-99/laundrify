@@ -1,4 +1,3 @@
-import type { SQLiteDatabase } from "expo-sqlite";
 import { getDatabase, runExclusiveTransaction } from "../database";
 import { findOrCreateCustomer } from "../repositories/customer.repository";
 import { MemberService } from "./member.service";
@@ -25,6 +24,62 @@ import {
   normalizeName,
   normalizePhone,
 } from "../utils/phone";
+
+type OrderTx = Parameters<Parameters<typeof runExclusiveTransaction>[1]>[0];
+
+async function fetchActiveServicesMap(
+  tx: OrderTx,
+  serviceIds: number[],
+): Promise<Map<number, Service>> {
+  const uniqueIds = Array.from(new Set(serviceIds.filter((id) => Number.isFinite(id))));
+  const map = new Map<number, Service>();
+  if (uniqueIds.length === 0) return map;
+
+  const placeholders = uniqueIds.map(() => "?").join(", ");
+  const rows = await tx.getAllAsync<Service>(
+    `SELECT * FROM services WHERE is_active = 1 AND id IN (${placeholders})`,
+    ...uniqueIds,
+  );
+  for (const row of rows) map.set(row.id, row);
+  return map;
+}
+
+async function fetchActivePackagesMap(
+  tx: OrderTx,
+  packageIds: number[],
+): Promise<Map<number, MemberPackage>> {
+  const uniqueIds = Array.from(new Set(packageIds.filter((id) => Number.isFinite(id))));
+  const map = new Map<number, MemberPackage>();
+  if (uniqueIds.length === 0) return map;
+
+  const placeholders = uniqueIds.map(() => "?").join(", ");
+  const rows = await tx.getAllAsync<MemberPackage>(
+    `SELECT * FROM member_packages WHERE is_active = 1 AND id IN (${placeholders})`,
+    ...uniqueIds,
+  );
+  for (const row of rows) map.set(row.id, row);
+  return map;
+}
+
+async function fetchActiveSubscriptionsMap(
+  tx: OrderTx,
+  customerId: number,
+  subscriptionIds: number[],
+): Promise<Map<number, MemberSubscriptionWithBalance>> {
+  const uniqueIds = Array.from(new Set(subscriptionIds.filter((id) => Number.isFinite(id))));
+  const map = new Map<number, MemberSubscriptionWithBalance>();
+  if (uniqueIds.length === 0) return map;
+
+  const placeholders = uniqueIds.map(() => "?").join(", ");
+  const rows = await tx.getAllAsync<MemberSubscriptionWithBalance>(
+    `SELECT * FROM v_subscription_balance
+     WHERE customer_id = ? AND status = 'active' AND id IN (${placeholders})`,
+    customerId,
+    ...uniqueIds,
+  );
+  for (const row of rows) map.set(row.id, row);
+  return map;
+}
 
 export async function createOrder(input: CreateOrderInput) {
   const db = await getDatabase();
@@ -74,8 +129,33 @@ export async function createOrder(input: CreateOrderInput) {
       customerPhone = customer.phone;
     }
 
+    // Batch-load semua referensi item sebelum loop untuk mencegah N+1 queries
+    const packageIds: number[] = [];
+    const serviceIds: number[] = [];
+    const subscriptionIds: number[] = [];
+    for (const item of input.items) {
+      if (item.item_type === "package" || (item.package_id && !item.service_id)) {
+        packageIds.push(Number(item.package_id));
+      } else {
+        if (item.service_id) serviceIds.push(Number(item.service_id));
+        if (item.use_subscription_id) subscriptionIds.push(Number(item.use_subscription_id));
+      }
+    }
+
+    if (subscriptionIds.length > 0 && !customerId) {
+      throw new Error("Order member harus menggunakan pelanggan terdaftar.");
+    }
+
+    const [pkgMap, svcMap, subMap] = await Promise.all([
+      fetchActivePackagesMap(tx, packageIds),
+      fetchActiveServicesMap(tx, serviceIds),
+      customerId && subscriptionIds.length > 0
+        ? fetchActiveSubscriptionsMap(tx, customerId, subscriptionIds)
+        : Promise.resolve(new Map<number, MemberSubscriptionWithBalance>()),
+    ]);
+
     // 2. PROSES ITEM ORDER & PEMAKAIAN KUOTA
-    const processedItems: Array<{
+    const processedItems: {
       item_type: "service" | "package";
       service_id: number | null;
       package_id: number | null;
@@ -88,7 +168,7 @@ export async function createOrder(input: CreateOrderInput) {
       notes: string | null;
       quota_usage_kg?: number;
       subscription_id_for_usage?: number;
-    }> = [];
+    }[] = [];
 
     let subtotal = 0;
     let memberDiscount = 0;
@@ -102,10 +182,7 @@ export async function createOrder(input: CreateOrderInput) {
 
       // Beli paket member baru
       if (item.item_type === "package" || (item.package_id && !item.service_id)) {
-        const pkg = await tx.getFirstAsync<MemberPackage>(
-          `SELECT * FROM member_packages WHERE id = ? AND is_active = 1`,
-          Number(item.package_id),
-        );
+        const pkg = pkgMap.get(Number(item.package_id));
         if (!pkg) throw new Error("Paket member tidak ditemukan");
 
         const lineSubtotal = pkg.price;
@@ -128,145 +205,118 @@ export async function createOrder(input: CreateOrderInput) {
         continue;
       }
 
-// ORDER KHUSUS MEMBER: HANYA INPUT TOTAL KG
-if (item.use_subscription_id && !item.service_id) {
-  if (!customerId) {
-    throw new Error("Order member harus menggunakan pelanggan terdaftar.");
-  }
+      // ORDER KHUSUS MEMBER: HANYA INPUT TOTAL KG
+      if (item.use_subscription_id && !item.service_id) {
+        const sub = subMap.get(Number(item.use_subscription_id));
+        if (!sub) {
+          throw new Error("Membership tidak aktif atau tidak ditemukan.");
+        }
 
-  const sub = await tx.getFirstAsync<MemberSubscriptionWithBalance>(
-    `SELECT * FROM v_subscription_balance
-     WHERE id = ?
-       AND customer_id = ?
-       AND status = 'active'`,
-    item.use_subscription_id,
-    customerId,
-  );
+        const alreadyUsed = usedInCurrentTx[sub.id] || 0;
+        const available = Math.max(0, sub.remaining_kg - alreadyUsed);
 
-  if (!sub) {
-    throw new Error("Membership tidak aktif atau tidak ditemukan.");
-  }
+        if (available < 5) {
+          throw new Error(
+            `Sisa kuota membership hanya ${available} KG. Minimal penggunaan adalah 5 KG.`,
+          );
+        }
 
-  const alreadyUsed = usedInCurrentTx[sub.id] || 0;
-  const available = Math.max(0, sub.remaining_kg - alreadyUsed);
+        if (item.quantity < 5) {
+          throw new Error("Minimal penggunaan kuota member adalah 5 KG.");
+        }
 
-  if (available < 5) {
-    throw new Error(
-      `Sisa kuota membership hanya ${available} KG. Minimal penggunaan adalah 5 KG.`,
-    );
-  }
+        if (item.quantity > available) {
+          throw new Error(
+            `Jumlah ${item.quantity} KG melebihi sisa kuota ${available} KG.`,
+          );
+        }
 
-  if (item.quantity < 5) {
-    throw new Error("Minimal penggunaan kuota member adalah 5 KG.");
-  }
+        processedItems.push({
+          item_type: "service",
+          service_id: null,
+          package_id: null,
+          service_name: `Laundry Member - ${sub.package_name}`,
+          unit: "KG",
+          quantity: item.quantity,
+          price: 0,
+          subtotal: 0,
+          paid_by_subscription_id: sub.id,
+          notes: item.notes ?? "Order menggunakan kuota membership",
+          quota_usage_kg: item.quantity,
+          subscription_id_for_usage: sub.id,
+        });
 
-  if (item.quantity > available) {
-    throw new Error(
-      `Jumlah ${item.quantity} KG melebihi sisa kuota ${available} KG.`,
-    );
-  }
-
-  // Tidak ada biaya karena dibayar menggunakan kuota membership.
-  processedItems.push({
-    item_type: "service",
-    service_id: null,
-    package_id: null,
-    service_name: `Laundry Member - ${sub.package_name}`,
-    unit: "KG",
-    quantity: item.quantity,
-    price: 0,
-    subtotal: 0,
-    paid_by_subscription_id: sub.id,
-    notes: item.notes ?? "Order menggunakan kuota membership",
-    quota_usage_kg: item.quantity,
-    subscription_id_for_usage: sub.id,
-  });
-
-  usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
-  continue;
-}
+        usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
+        continue;
+      }
 
       // Layanan biasa
-      const svc = await tx.getFirstAsync<Service>(
-        `SELECT * FROM services WHERE id = ? AND is_active = 1`,
-        Number(item.service_id),
-      );
+      const svc = svcMap.get(Number(item.service_id));
       if (!svc) {
         throw new Error(`Layanan ${item.service_id} tidak ditemukan`);
       }
 
-      // Cek apakah item memakai kuota langganan aktif
-   
-// CEK PENGGUNAAN KUOTA PADA LAYANAN REGULER
-if (item.use_subscription_id) {
-  if (!customerId) {
-    throw new Error("Membership harus menggunakan pelanggan terdaftar.");
-  }
+      // CEK PENGGUNAAN KUOTA PADA LAYANAN REGULER
+      if (item.use_subscription_id) {
+        if (!customerId) {
+          throw new Error("Membership harus menggunakan pelanggan terdaftar.");
+        }
 
-  if (svc.category !== "kiloan" || !svc.package_type) {
-    throw new Error("Kuota member hanya berlaku untuk layanan kiloan.");
-  }
+        if (svc.category !== "kiloan" || !svc.package_type) {
+          throw new Error("Kuota member hanya berlaku untuk layanan kiloan.");
+        }
 
-  const sub = await tx.getFirstAsync<MemberSubscriptionWithBalance>(
-    `SELECT * FROM v_subscription_balance
-     WHERE id = ?
-       AND customer_id = ?
-       AND status = 'active'`,
-    item.use_subscription_id,
-    customerId,
-  );
+        const sub = subMap.get(Number(item.use_subscription_id));
+        if (!sub) {
+          throw new Error("Membership tidak aktif atau tidak ditemukan.");
+        }
 
-  if (!sub) {
-    throw new Error("Membership tidak aktif atau tidak ditemukan.");
-  }
+        if (svc.package_type !== sub.package_type) {
+          throw new Error(
+            `Tipe paket layanan ${svc.package_type} tidak sesuai dengan membership ${sub.package_type}.`,
+          );
+        }
 
-  if (svc.package_type !== sub.package_type) {
-    throw new Error(
-      `Tipe paket layanan ${svc.package_type} tidak sesuai dengan membership ${sub.package_type}.`,
-    );
-  }
+        const alreadyUsed = usedInCurrentTx[sub.id] || 0;
+        const available = Math.max(0, sub.remaining_kg - alreadyUsed);
 
-  const alreadyUsed = usedInCurrentTx[sub.id] || 0;
-  const available = Math.max(0, sub.remaining_kg - alreadyUsed);
+        if (available < 5) {
+          throw new Error("Sisa kuota membership kurang dari 5 KG.");
+        }
 
-  if (available < 5) {
-    throw new Error("Sisa kuota membership kurang dari 5 KG.");
-  }
+        if (item.quantity < 5) {
+          throw new Error("Minimal penggunaan kuota member adalah 5 KG.");
+        }
 
-  if (item.quantity < 5) {
-    throw new Error("Minimal penggunaan kuota member adalah 5 KG.");
-  }
+        if (item.quantity > available) {
+          throw new Error(
+            `Kuota tidak mencukupi. Sisa kuota hanya ${available} KG.`,
+          );
+        }
 
-  if (item.quantity > available) {
-    throw new Error(
-      `Kuota tidak mencukupi. Sisa kuota hanya ${available} KG.`,
-    );
-  }
+        const lineSubtotal = Math.round(item.quantity * svc.price);
 
-  const lineSubtotal = Math.round(item.quantity * svc.price);
+        subtotal += lineSubtotal;
+        memberDiscount += lineSubtotal;
 
-  subtotal += lineSubtotal;
-  memberDiscount += lineSubtotal;
+        processedItems.push({
+          item_type: "service",
+          service_id: svc.id,
+          package_id: null,
+          service_name: svc.name,
+          unit: svc.unit,
+          quantity: item.quantity,
+          price: svc.price,
+          subtotal: lineSubtotal,
+          paid_by_subscription_id: sub.id,
+          notes: item.notes ?? null,
+          quota_usage_kg: item.quantity,
+          subscription_id_for_usage: sub.id,
+        });
 
-  processedItems.push({
-    item_type: "service",
-    service_id: svc.id,
-    package_id: null,
-    service_name: svc.name,
-    unit: svc.unit,
-    quantity: item.quantity,
-    price: svc.price,
-    subtotal: lineSubtotal,
-    paid_by_subscription_id: sub.id,
-    notes: item.notes ?? null,
-    quota_usage_kg: item.quantity,
-    subscription_id_for_usage: sub.id,
-  });
-
-  usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
-  continue;
-}
-
+        usedInCurrentTx[sub.id] = alreadyUsed + item.quantity;
+        continue;
+      }
 
       // Layanan reguler (tanpa kuota)
       const lineSubtotal = Math.round(item.quantity * svc.price);
@@ -396,13 +446,10 @@ if (item.use_subscription_id) {
     }
 
     // 7. PERBARUI STATUS LANGGANAN JIKA KUOTA HABIS (USED_UP)
-    for (const subIdStr of Object.keys(usedInCurrentTx)) {
+    for (const [subIdStr, usedKg] of Object.entries(usedInCurrentTx)) {
       const subId = Number(subIdStr);
-      const bal = await tx.getFirstAsync<{ remaining_kg: number }>(
-        `SELECT remaining_kg FROM v_subscription_balance WHERE id = ?`,
-        subId,
-      );
-      if (bal && bal.remaining_kg <= 0) {
+      const sub = subMap.get(subId);
+      if (sub && sub.remaining_kg - usedKg <= 0) {
         await tx.runAsync(
           `UPDATE member_subscriptions SET status = 'used_up', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
           subId,
@@ -514,12 +561,16 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
       customer_id: number | null;
       customer_name: string | null;
       customer_phone: string | null;
+      subtotal: number;
+      member_discount: number;
+      discount: number;
       total: number;
+      paid_amount: number;
       status: OrderStatus;
       deleted_at: string | null;
     }>(
       `SELECT id, customer_id, customer_name, customer_phone,
-              total, status, deleted_at
+              subtotal, member_discount, discount, total, paid_amount, status, deleted_at
        FROM orders WHERE id = ?`,
       id,
     );
@@ -537,15 +588,22 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
        FROM payments WHERE order_id = ? AND is_void = 0`,
       id,
     );
+    const currentPaid = paid?.total ?? order.paid_amount;
 
     let newSubtotal: number;
     let newDiscount: number;
     let newTotal: number;
+    const preservedMemberDiscount = order.member_discount ?? 0;
 
     if (input.items !== undefined) {
       if (!input.items.length) {
         throw new Error("Order harus memiliki minimal satu item");
       }
+
+      const svcMap = await fetchActiveServicesMap(
+        tx,
+        input.items.map((item) => Number(item.service_id)),
+      );
 
       newSubtotal = 0;
       const newItems = [];
@@ -555,11 +613,7 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
           throw new Error("Jumlah item tidak valid");
         }
 
-        const service = await tx.getFirstAsync<Service>(
-          `SELECT * FROM services WHERE id = ? AND is_active = 1`,
-          Number(item.service_id),
-        );
-
+        const service = svcMap.get(Number(item.service_id));
         if (!service) throw new Error("Layanan tidak ditemukan");
 
         const lineTotal = Math.round(item.quantity * service.price);
@@ -569,13 +623,13 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
       }
 
       newDiscount = input.discount ?? 0;
-      if (newDiscount < 0 || newDiscount > newSubtotal) {
+      if (newDiscount < 0 || preservedMemberDiscount + newDiscount > newSubtotal) {
         throw new Error("Diskon tidak valid");
       }
 
-      newTotal = newSubtotal - newDiscount;
+      newTotal = newSubtotal - preservedMemberDiscount - newDiscount;
 
-      if (newTotal < (paid?.total ?? 0)) {
+      if (newTotal < currentPaid) {
         throw new Error(
           "Total baru lebih kecil dari pembayaran yang sudah diterima",
         );
@@ -600,26 +654,20 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
         );
       }
     } else {
-      const current = await tx.getFirstAsync<{
-        subtotal: number;
-        discount: number;
-      }>(`SELECT subtotal, discount FROM orders WHERE id = ?`, id);
+      newSubtotal = order.subtotal;
+      newDiscount = input.discount ?? order.discount;
 
-      newSubtotal = current!.subtotal;
-      newDiscount = input.discount ?? current!.discount;
-
-      if (newDiscount < 0 || newDiscount > newSubtotal) {
+      if (newDiscount < 0 || preservedMemberDiscount + newDiscount > newSubtotal) {
         throw new Error("Diskon tidak valid");
       }
 
-      newTotal = newSubtotal - newDiscount;
+      newTotal = newSubtotal - preservedMemberDiscount - newDiscount;
 
-      if (newTotal < (paid?.total ?? 0)) {
+      if (newTotal < currentPaid) {
         throw new Error("Total baru lebih kecil dari pembayaran");
       }
     }
 
-    const currentPaid = paid?.total ?? 0;
     const paymentStatus: PaymentStatus =
       currentPaid >= newTotal ? "paid" : currentPaid > 0 ? "partial" : "unpaid";
 
@@ -628,6 +676,7 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
         subtotal = ?,
         discount = ?,
         total = ?,
+        paid_amount = ?,
         payment_status = ?,
         estimated_completion = COALESCE(?, estimated_completion),
         notes = COALESCE(?, notes),
@@ -636,6 +685,7 @@ export async function updateOrder(id: number, input: UpdateOrderInput) {
       newSubtotal,
       newDiscount,
       newTotal,
+      currentPaid,
       paymentStatus,
       input.estimated_completion ?? null,
       input.notes ?? null,
@@ -818,6 +868,24 @@ export async function getOrders(options?: {
   const offset = Math.max(options?.offset ?? 0, 0);
   const search = options?.search?.trim() ?? "";
 
+  const conditions = ["o.deleted_at IS NULL"];
+  const params: (string | number)[] = [];
+
+  if (options?.status) {
+    conditions.push("o.status = ?");
+    params.push(options.status);
+  }
+
+  if (search) {
+    const escaped = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+    conditions.push(
+      `(o.order_number LIKE ? ESCAPE '\\'
+        OR COALESCE(c.name, o.customer_name, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
+        OR COALESCE(c.phone, o.customer_phone, '') LIKE ? ESCAPE '\\')`,
+    );
+    params.push(escaped, escaped, escaped);
+  }
+
   return db.getAllAsync(
     `SELECT
        o.id, o.order_number, o.customer_id, o.order_date,
@@ -827,29 +895,14 @@ export async function getOrders(options?: {
        COALESCE(c.name, o.customer_name, 'Pelanggan umum') AS customer_name,
        COALESCE(c.phone, o.customer_phone) AS customer_phone,
        CASE WHEN o.customer_id IS NULL THEN 1 ELSE 0 END AS is_manual_customer,
-       COALESCE(p.paid, 0) AS paid,
-       o.total - COALESCE(p.paid, 0) AS remaining
+       o.paid_amount AS paid,
+       MAX(0, o.total - o.paid_amount) AS remaining
      FROM orders o
      LEFT JOIN customers c ON c.id = o.customer_id
-     LEFT JOIN (
-       SELECT order_id, SUM(amount) AS paid
-       FROM payments
-       WHERE is_void = 0
-       GROUP BY order_id
-     ) p ON p.order_id = o.id
-     WHERE o.deleted_at IS NULL
-       AND (? = '' OR o.order_number LIKE ?
-         OR COALESCE(c.name, o.customer_name, '') LIKE ? COLLATE NOCASE
-         OR COALESCE(c.phone, o.customer_phone, '') LIKE ?)
-       AND (? IS NULL OR o.status = ?)
+     WHERE ${conditions.join(" AND ")}
      ORDER BY o.order_date DESC, o.id DESC
      LIMIT ? OFFSET ?`,
-    search,
-    `%${search}%`,
-    `%${search}%`,
-    `%${search}%`,
-    options?.status ?? null,
-    options?.status ?? null,
+    ...params,
     limit,
     offset,
   );

@@ -1,42 +1,38 @@
 
+import { useFocusEffect } from "expo-router";
+import CalendarDays from "lucide-react-native/icons/calendar-days";
+import CheckCircle2 from "lucide-react-native/icons/circle-check";
+import Database from "lucide-react-native/icons/database";
+import Download from "lucide-react-native/icons/download";
+import FileSpreadsheet from "lucide-react-native/icons/file-spreadsheet";
+import Info from "lucide-react-native/icons/info";
+import MapPin from "lucide-react-native/icons/map-pin";
+import Phone from "lucide-react-native/icons/phone";
+import Store from "lucide-react-native/icons/store";
+import Table2 from "lucide-react-native/icons/table-2";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
-import {
-  Database,
-  FileSpreadsheet,
-  Info,
-  Store,
-  Phone,
-  CalendarDays,
-  Download,
-  CheckCircle2,
-  Table2,
-  MapPin,
-} from "lucide-react-native";
 
 import {
+  SETTING_KEYS,
   getAllSettings,
   setSetting,
-  getLaundryAddress,
-  setLaundryAddress,
 } from "../../repositories/settings.repository";
 
 import { getDatabaseInfo } from "../../repositories/meta.repository";
-
 import {
-  exportExcel,
-  ExportPeriod,
   getExportRange,
-} from "../../database/export-excel";
+  type ExportPeriod,
+} from "../../utils/export-range";
 
-import { Button, C, Page } from "../../components/ui";
+import { Page } from "../../components/ui";
 
 // ==========================================
 // CONSTANTS
@@ -55,10 +51,10 @@ const periodOptions: {
   label: string;
   value: ExportPeriod;
 }[] = [
-  { label: "Mingguan", value: "week" },
-  { label: "Bulanan", value: "month" },
-  { label: "Tahunan", value: "year" },
-];
+    { label: "Mingguan", value: "week" },
+    { label: "Bulanan", value: "month" },
+    { label: "Tahunan", value: "year" },
+  ];
 
 // ==========================================
 // COLORS
@@ -227,32 +223,31 @@ export default function Settings() {
 
   const load = useCallback(async () => {
     try {
-      const [settings, databaseInfo, laundryAddress] =
-        await Promise.all([
-          getAllSettings(),
-          getDatabaseInfo(),
-          getLaundryAddress(),
-        ]);
+      const [settings, databaseInfo] = await Promise.all([
+        getAllSettings(),
+        getDatabaseInfo(),
+      ]);
+
+      const settingsMap = new Map(
+        settings.map((item) => [item.key, item.value || ""]),
+      );
 
       setInfo(databaseInfo);
-
       setShop(
-        settings.find(
-          (item) => item.key === "business_name"
-        )?.value || ""
+        settingsMap.get(SETTING_KEYS.LAUNDRY_NAME) ||
+        settingsMap.get("business_name") ||
+        "",
       );
-
       setPhone(
-        settings.find(
-          (item) => item.key === "business_phone"
-        )?.value || ""
+        settingsMap.get(SETTING_KEYS.LAUNDRY_PHONE) ||
+        settingsMap.get("business_phone") ||
+        "",
       );
-
-      setAddress(laundryAddress);
+      setAddress(settingsMap.get(SETTING_KEYS.LAUNDRY_ADDRESS) || "");
     } catch (error: any) {
       Alert.alert(
         "Gagal",
-        error.message || "Tidak dapat memuat pengaturan."
+        error.message || "Tidak dapat memuat pengaturan.",
       );
     }
   }, []);
@@ -260,7 +255,7 @@ export default function Settings() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load]),
   );
 
   // ==========================================
@@ -273,20 +268,22 @@ export default function Settings() {
     try {
       setSaving(true);
 
-      await setSetting("business_name", shop.trim());
-      await setSetting("business_phone", phone.trim());
-      await setLaundryAddress(address);
+      await Promise.all([
+        setSetting(SETTING_KEYS.LAUNDRY_NAME, shop.trim()),
+        setSetting(SETTING_KEYS.LAUNDRY_PHONE, phone.trim()),
+        setSetting(SETTING_KEYS.LAUNDRY_ADDRESS, address.trim()),
+      ]);
 
       Alert.alert(
         "Berhasil",
-        "Informasi usaha berhasil disimpan."
+        "Informasi usaha berhasil disimpan.",
       );
 
       await load();
     } catch (error: any) {
       Alert.alert(
         "Gagal",
-        error.message || "Pengaturan gagal disimpan."
+        error.message || "Pengaturan gagal disimpan.",
       );
     } finally {
       setSaving(false);
@@ -304,18 +301,19 @@ export default function Settings() {
       if (!range) {
         Alert.alert(
           "Tanggal tidak valid",
-          "Masukkan tanggal dengan format YYYY-MM-DD."
+          "Masukkan tanggal dengan format YYYY-MM-DD.",
         );
         return;
       }
 
       setExporting(true);
 
+      const { exportExcel } = await import("../../database/export-excel");
       await exportExcel(period, selectedDate);
     } catch (error: any) {
       Alert.alert(
         "Export gagal",
-        error.message || "Terjadi kesalahan saat membuat Excel."
+        error.message || "Terjadi kesalahan saat membuat Excel.",
       );
     } finally {
       setExporting(false);
@@ -590,7 +588,7 @@ export default function Settings() {
           </Text>
 
           <Text style={styles.databaseValue}>
-            {info?.name || "laundrify.db"}
+            {info?.name || "laundrifyV2.db"}
           </Text>
         </View>
 
@@ -655,7 +653,7 @@ export default function Settings() {
 // STYLES
 // ==========================================
 
-const styles = {
+const styles = StyleSheet.create({
   card: {
     backgroundColor: UI.white,
     borderWidth: 1,
@@ -666,8 +664,8 @@ const styles = {
   },
 
   sectionHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 11,
   },
 
@@ -676,13 +674,13 @@ const styles = {
     height: 38,
     borderRadius: 4,
     backgroundColor: UI.primaryLight,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   sectionTitle: {
     fontSize: 14,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: UI.text,
   },
 
@@ -704,15 +702,15 @@ const styles = {
 
   inputLabel: {
     fontSize: 11,
-    fontWeight: "700" as const,
+    fontWeight: "700",
     color: UI.text,
     marginBottom: 7,
   },
 
   inputWrapper: {
     minHeight: 46,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: UI.border,
     borderRadius: 4,
@@ -722,8 +720,8 @@ const styles = {
 
   inputIcon: {
     width: 25,
-    alignItems: "flex-start" as const,
-    justifyContent: "center" as const,
+    alignItems: "flex-start",
+    justifyContent: "center",
   },
 
   input: {
@@ -733,12 +731,10 @@ const styles = {
     color: UI.text,
   },
 
-  // ADDRESS INPUT
-
   textAreaWrapper: {
     minHeight: 105,
-    flexDirection: "row" as const,
-    alignItems: "flex-start" as const,
+    flexDirection: "row",
+    alignItems: "flex-start",
     borderWidth: 1,
     borderColor: UI.border,
     borderRadius: 4,
@@ -750,7 +746,7 @@ const styles = {
   textAreaIcon: {
     width: 25,
     paddingTop: 3,
-    alignItems: "flex-start" as const,
+    alignItems: "flex-start",
   },
 
   textArea: {
@@ -768,13 +764,11 @@ const styles = {
     lineHeight: 15,
   },
 
-  // PRIMARY BUTTON
-
   primaryButton: {
     minHeight: 45,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 9,
     backgroundColor: UI.primary,
     borderRadius: 4,
@@ -784,14 +778,12 @@ const styles = {
 
   primaryButtonText: {
     fontSize: 12,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: UI.white,
   },
 
-  // EXPORT PERIOD
-
   periodContainer: {
-    flexDirection: "row" as const,
+    flexDirection: "row",
     gap: 7,
     marginBottom: 17,
   },
@@ -799,8 +791,8 @@ const styles = {
   periodButton: {
     flex: 1,
     minHeight: 40,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: UI.soft,
     borderWidth: 1,
     borderColor: UI.border,
@@ -815,15 +807,13 @@ const styles = {
 
   periodText: {
     fontSize: 11,
-    fontWeight: "700" as const,
+    fontWeight: "700",
     color: UI.secondary,
   },
 
   periodTextActive: {
     color: UI.primary,
   },
-
-  // RANGE
 
   rangeBox: {
     backgroundColor: UI.primaryLight,
@@ -835,29 +825,27 @@ const styles = {
   },
 
   rangeHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 7,
   },
 
   rangeTitle: {
     fontSize: 10,
-    fontWeight: "700" as const,
+    fontWeight: "700",
     color: UI.secondary,
   },
 
   rangeValue: {
     fontSize: 13,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: UI.primary,
     marginTop: 7,
   },
 
-  // INFO
-
   infoBox: {
-    flexDirection: "row" as const,
-    alignItems: "flex-start" as const,
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 8,
     backgroundColor: UI.soft,
     borderWidth: 1,
@@ -874,28 +862,26 @@ const styles = {
     color: UI.secondary,
   },
 
-  // EXPORT CONTENT
-
   exportContent: {
     marginBottom: 15,
   },
 
   exportContentHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 7,
     marginBottom: 9,
   },
 
   exportContentTitle: {
     fontSize: 11,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: UI.text,
   },
 
   exportTags: {
-    flexDirection: "row" as const,
-    flexWrap: "wrap" as const,
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 6,
   },
 
@@ -911,7 +897,7 @@ const styles = {
   exportTagText: {
     fontSize: 10,
     color: UI.secondary,
-    fontWeight: "600" as const,
+    fontWeight: "600",
   },
 
   errorText: {
@@ -920,12 +906,10 @@ const styles = {
     marginTop: 5,
   },
 
-  // DATABASE
-
   databaseItem: {
-    flexDirection: "row" as const,
-    justifyContent: "space-between" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: UI.border,
@@ -938,13 +922,13 @@ const styles = {
 
   databaseValue: {
     fontSize: 11,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: UI.text,
   },
 
   databaseStatus: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 7,
     backgroundColor: "#ECFDF3",
     padding: 10,
@@ -961,15 +945,13 @@ const styles = {
 
   databaseStatusText: {
     fontSize: 10,
-    fontWeight: "700" as const,
+    fontWeight: "700",
     color: UI.green,
   },
 
-  // ABOUT
-
   aboutCard: {
-    flexDirection: "row" as const,
-    alignItems: "flex-start" as const,
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 12,
     backgroundColor: UI.white,
     borderWidth: 1,
@@ -984,13 +966,13 @@ const styles = {
     height: 36,
     backgroundColor: UI.primaryLight,
     borderRadius: 4,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   aboutTitle: {
     fontSize: 13,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: UI.text,
   },
 
@@ -1003,9 +985,9 @@ const styles = {
 
   versionText: {
     fontSize: 9,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     letterSpacing: 0.8,
     color: UI.muted,
     marginTop: 12,
   },
-};
+});

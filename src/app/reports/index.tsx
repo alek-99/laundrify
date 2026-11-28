@@ -2,28 +2,27 @@
 import React, { useCallback, useState } from "react";
 import {
   Alert,
+  StyleSheet,
   Text,
   View,
-  ActivityIndicator,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import {
-  TrendingUp,
-  TrendingDown,
-  Wallet,
-  ArrowUpRight,
-  ArrowDownRight,
-  ChartNoAxesCombined,
-  ReceiptText,
-} from "lucide-react-native";
+import ArrowDownRight from "lucide-react-native/icons/arrow-down-right";
+import ArrowUpRight from "lucide-react-native/icons/arrow-up-right";
+import ChartNoAxesCombined from "lucide-react-native/icons/chart-no-axes-combined";
+import ReceiptText from "lucide-react-native/icons/receipt-text";
+import TrendingDown from "lucide-react-native/icons/trending-down";
+import TrendingUp from "lucide-react-native/icons/trending-up";
+import Wallet from "lucide-react-native/icons/wallet";
 
 import {
   getMonthlyFinance,
   getFinanceSummary,
   getFinanceByCategory,
 } from "../../repositories/finance.repository";
+import { getLocalYearRangeUtc } from "../../utils/format";
 
-import { Card, C, Page, money } from "../../components/ui";
+import { Page, money } from "../../components/ui";
 
 const COLORS = {
   background: "#F3F5F8",
@@ -61,14 +60,10 @@ export default function Reports() {
   const [monthly, setMonthly] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [categories, setCategories] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      setLoading(true);
-
-      const start = `${year}-01-01T00:00:00`;
-      const end = `${year + 1}-01-01T00:00:00`;
+      const { start, end } = getLocalYearRangeUtc(year);
 
       const [m, s, c] = await Promise.all([
         getMonthlyFinance(year),
@@ -84,8 +79,6 @@ export default function Reports() {
         "Gagal memuat laporan",
         e?.message || "Terjadi kesalahan saat mengambil data laporan.",
       );
-    } finally {
-      setLoading(false);
     }
   }, [year]);
 
@@ -353,9 +346,9 @@ export default function Reports() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   overviewContainer: {
-    flexDirection: "row" as const,
+    flexDirection: "row",
     gap: 10,
     marginBottom: 13,
   },
@@ -375,17 +368,17 @@ const styles = {
   },
 
   overviewHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "space-between" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 13,
   },
 
   iconBox: {
     width: 35,
     height: 35,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
@@ -400,12 +393,12 @@ const styles = {
   overviewLabel: {
     fontSize: 10,
     color: COLORS.muted,
-    fontWeight: "700" as const,
+    fontWeight: "700",
   },
 
   overviewAmount: {
     fontSize: 13,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     marginTop: 7,
   },
 
@@ -424,8 +417,8 @@ const styles = {
   },
 
   cashFlowHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 11,
   },
 
@@ -433,14 +426,14 @@ const styles = {
     width: 39,
     height: 39,
     backgroundColor: COLORS.primaryLight,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
   cashFlowLabel: {
     fontSize: 12,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
   },
 
@@ -452,7 +445,7 @@ const styles = {
 
   cashFlowAmount: {
     fontSize: 25,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     marginTop: 17,
   },
 
@@ -463,20 +456,20 @@ const styles = {
   },
 
   transactionInfo: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 7,
   },
 
   transactionText: {
     fontSize: 10,
     color: COLORS.muted,
-    fontWeight: "600" as const,
+    fontWeight: "600",
   },
 
   sectionHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     marginBottom: 11,
     marginTop: 3,
@@ -486,14 +479,14 @@ const styles = {
     width: 35,
     height: 35,
     backgroundColor: COLORS.primaryLight,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
   sectionTitle: {
     fontSize: 14,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     color: COLORS.text,
   },
 
@@ -518,14 +511,14 @@ const styles = {
   },
 
   chartLegend: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 19,
   },
 
   legendItem: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 7,
   },
 
@@ -539,12 +532,12 @@ const styles = {
   legendText: {
     fontSize: 10,
     color: COLORS.muted,
-    fontWeight: "700" as const,
+    fontWeight: "700",
   },
 
   monthRow: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 9,
     marginBottom: 15,
   },
@@ -552,7 +545,7 @@ const styles = {
   monthName: {
     width: 29,
     fontSize: 10,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: COLORS.text,
   },
 
@@ -561,7 +554,7 @@ const styles = {
     height: 8,
     backgroundColor: "#E9EDF2",
     borderRadius: 2,
-    overflow: "hidden" as const,
+    overflow: "hidden",
   },
 
   barFill: {
@@ -574,8 +567,8 @@ const styles = {
     width: 83,
     fontSize: 9,
     color: COLORS.muted,
-    textAlign: "right" as const,
-    fontWeight: "700" as const,
+    textAlign: "right",
+    fontWeight: "700",
   },
 
   categoryCard: {
@@ -593,8 +586,8 @@ const styles = {
   },
 
   categoryRow: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     paddingVertical: 13,
     borderBottomWidth: 1,
@@ -608,8 +601,8 @@ const styles = {
   categoryIcon: {
     width: 35,
     height: 35,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
 
@@ -619,7 +612,7 @@ const styles = {
 
   categoryName: {
     fontSize: 11,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: COLORS.text,
   },
 
@@ -631,18 +624,18 @@ const styles = {
 
   categoryAmount: {
     fontSize: 11,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
 
   emptyState: {
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 30,
   },
 
   emptyTitle: {
     fontSize: 12,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     color: COLORS.text,
     marginTop: 10,
   },
@@ -655,11 +648,11 @@ const styles = {
 
   footer: {
     fontSize: 8,
-    textAlign: "center" as const,
+    textAlign: "center",
     color: "#A0A5B1",
-    fontWeight: "800" as const,
+    fontWeight: "800",
     letterSpacing: 1.5,
     marginTop: 10,
     marginBottom: 12,
   },
-};
+});

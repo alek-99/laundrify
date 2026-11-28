@@ -290,42 +290,41 @@ export async function getServicesPaginated(
     ? `WHERE ${conditions.join(" AND ")}`
     : "";
 
-  // Total data
-  const countResult = await db.getFirstAsync<{
-    total: number;
-  }>(
-    `SELECT COUNT(*) AS total
-     FROM services
-     ${whereClause}`,
-    ...params
-  );
+  const runPageQuery = (offset: number) =>
+    db.getAllAsync<Service & { total_count: number }>(
+      `SELECT *, COUNT(*) OVER() AS total_count
+       FROM services
+       ${whereClause}
+       ORDER BY
+         sort_order ASC,
+         name COLLATE NOCASE ASC,
+         id ASC
+       LIMIT ? OFFSET ?`,
+      ...params,
+      limit,
+      offset,
+    );
 
-  const total = countResult?.total ?? 0;
+  let page = requestedPage;
+  let rawRows = await runPageQuery((page - 1) * limit);
+
+  let total = rawRows.length > 0 ? Number(rawRows[0].total_count) : 0;
+
+  if (rawRows.length === 0 && requestedPage > 1) {
+    const countResult = await db.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM services ${whereClause}`,
+      ...params,
+    );
+    total = countResult?.total ?? 0;
+    const maxPages = Math.max(1, Math.ceil(total / limit));
+    page = Math.min(requestedPage, maxPages);
+    if (total > 0) {
+      rawRows = await runPageQuery((page - 1) * limit);
+    }
+  }
+
   const totalPages = Math.ceil(total / limit);
-
-  // Jika halaman yang diminta melebihi total halaman,
-  // gunakan halaman terakhir yang tersedia.
-  const page = Math.min(
-    requestedPage,
-    Math.max(1, totalPages)
-  );
-
-  const offset = (page - 1) * limit;
-
-  // Ambil data sesuai halaman
-  const data = await db.getAllAsync<Service>(
-    `SELECT *
-     FROM services
-     ${whereClause}
-     ORDER BY
-       sort_order ASC,
-       name COLLATE NOCASE ASC,
-       id ASC
-     LIMIT ? OFFSET ?`,
-    ...params,
-    limit,
-    offset
-  );
+  const data: Service[] = rawRows.map(({ total_count: _totalCount, ...service }) => service);
 
   return {
     data,
@@ -377,61 +376,6 @@ export async function getServices(
        name COLLATE NOCASE ASC,
        id ASC`,
     ...params
-  );
-}
-
-// ======================================================
-// GET SERVICES BY CATEGORY
-// ======================================================
-
-export async function getServicesByCategory(
-  category: ServiceCategory,
-  activeOnly = true
-): Promise<Service[]> {
-  const db = await getDatabase();
-
-  if (!SERVICE_CATEGORIES.includes(category)) {
-    throw new Error("Kategori layanan tidak valid");
-  }
-
-  return db.getAllAsync<Service>(
-    `SELECT *
-     FROM services
-     WHERE category = ?
-     ${activeOnly ? "AND is_active = 1" : ""}
-     ORDER BY
-       sort_order ASC,
-       name COLLATE NOCASE ASC,
-       id ASC`,
-    category
-  );
-}
-
-// ======================================================
-// GET SERVICES BY PACKAGE TYPE
-// ======================================================
-
-export async function getServicesByPackageType(
-  packageType: PackageType,
-  activeOnly = true
-): Promise<Service[]> {
-  const db = await getDatabase();
-
-  if (!PACKAGE_TYPES.includes(packageType)) {
-    throw new Error("Tipe paket tidak valid");
-  }
-
-  return db.getAllAsync<Service>(
-    `SELECT *
-     FROM services
-     WHERE category = 'kiloan'
-       AND package_type = ?
-       ${activeOnly ? "AND is_active = 1" : ""}
-     ORDER BY
-       sort_order ASC,
-       estimated_hours ASC,
-       name COLLATE NOCASE ASC`,
-    packageType
   );
 }
 
@@ -599,47 +543,6 @@ export async function setServiceActive(
        updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     active ? 1 : 0,
-    id
-  );
-
-  if (!result.changes) {
-    throw new Error("Layanan tidak ditemukan");
-  }
-
-  return true;
-}
-
-// ======================================================
-// UPDATE SERVICE SORT ORDER
-// ======================================================
-
-export async function updateServiceSortOrder(
-  id: number,
-  sortOrder: number
-): Promise<boolean> {
-  const db = await getDatabase();
-
-  if (
-    !Number.isSafeInteger(id) ||
-    id <= 0
-  ) {
-    throw new Error("ID layanan tidak valid");
-  }
-
-  if (
-    !Number.isInteger(sortOrder) ||
-    sortOrder < 0
-  ) {
-    throw new Error("Urutan layanan tidak valid");
-  }
-
-  const result = await db.runAsync(
-    `UPDATE services
-     SET
-       sort_order = ?,
-       updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    sortOrder,
     id
   );
 

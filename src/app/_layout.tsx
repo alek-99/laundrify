@@ -2,61 +2,41 @@
 import { initializeDatabase } from "@/database/migrations";
 import LoadingScreen from "@/components/LoadingScreen";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState("Menyiapkan aplikasi...");
+  const [progress, setProgress] = useState(20);
+  const [status, setStatus] = useState("Menyiapkan database...");
 
   useEffect(() => {
     let mounted = true;
 
     async function initialize() {
       try {
-        setProgress(15);
-        setStatus("Menghubungkan database...");
-
-        await new Promise((resolve) =>
-          setTimeout(resolve, 400)
-        );
-
-        if (!mounted) return;
-
-        setProgress(35);
-        setStatus("Menyiapkan struktur database...");
-
         await initializeDatabase();
-
-        if (!mounted) return;
-
-        setProgress(85);
-        setStatus("Memuat aplikasi...");
-
-        await new Promise((resolve) =>
-          setTimeout(resolve, 500)
-        );
 
         if (!mounted) return;
 
         setProgress(100);
         setStatus("Aplikasi siap!");
-
-        await new Promise((resolve) =>
-          setTimeout(resolve, 500)
-        );
-
-        if (!mounted) return;
-
         setReady(true);
       } catch (err) {
-        console.error("Database initialization error:", err);
+        if (__DEV__) {
+          console.error("Database initialization error:", err);
+        }
 
         if (mounted) {
           setError("Gagal menginisialisasi database.");
         }
+      } finally {
+        SplashScreen.hideAsync().catch(() => {});
       }
     }
 
@@ -69,36 +49,42 @@ export default function RootLayout() {
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>
-          Terjadi Kesalahan
-        </Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <Text style={styles.errorHint}>
-          Silakan tutup dan buka kembali aplikasi.
-        </Text>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>
+            Terjadi Kesalahan
+          </Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorHint}>
+            Silakan tutup dan buka kembali aplikasi.
+          </Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   if (!ready) {
     return (
-      <LoadingScreen
-        progress={progress}
-        status={status}
-      />
+      <SafeAreaProvider>
+        <LoadingScreen
+          progress={progress}
+          status={status}
+        />
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: {
-          backgroundColor: "#F7F7F4",
-        },
-      }}
-    />
+    <SafeAreaProvider>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: {
+            backgroundColor: "#F7F7F4",
+          },
+        }}
+      />
+    </SafeAreaProvider>
   );
 }
 
