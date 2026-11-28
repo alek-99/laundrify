@@ -1,9 +1,9 @@
 
-import React, { useCallback, useMemo, useState } from "react";
+import { FlashList } from "@shopify/flash-list";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,27 +11,26 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import {
-  Award,
-  Search,
-  Users,
-  Wallet,
-  CheckCircle2,
-  CircleAlert,
-  XCircle,
-  RefreshCw,
-} from "lucide-react-native";
+import Award from "lucide-react-native/icons/award";
+import CheckCircle2 from "lucide-react-native/icons/circle-check";
+import CircleAlert from "lucide-react-native/icons/circle-exclamation-point";
+import RefreshCw from "lucide-react-native/icons/refresh-cw";
+import Search from "lucide-react-native/icons/search";
+import Users from "lucide-react-native/icons/users";
+import Wallet from "lucide-react-native/icons/wallet";
+import XCircle from "lucide-react-native/icons/circle-x";
 
 import { Page, money } from "../../../components/ui";
-import { MemberService } from "../../../services/member.service";
-import type { MemberSubscriptionWithBalance } from "../../../types/database";
-
-type MemberRow = MemberSubscriptionWithBalance & {
-  customer_name: string;
-  customer_phone: string | null;
-};
+import {
+  MemberService,
+  type SubscriptionListRow,
+  type SubscriptionStats,
+} from "../../../services/member.service";
+import { formatDateMedium } from "../../../utils/format";
 
 type FilterStatus = "all" | "active" | "used_up" | "cancelled";
+
+const PAGE_SIZE = 30;
 
 const C = {
   primary: "#3159C9",
@@ -47,20 +46,6 @@ const C = {
   amberLight: "#FEF3C7",
   red: "#D34B55",
   redLight: "#FEE2E2",
-};
-
-const formatDate = (value?: string | null) => {
-  if (!value) return "-";
-
-  const date = new Date(value.replace(" ", "T"));
-
-  if (Number.isNaN(date.getTime())) return value;
-
-  return date.toLocaleDateString("id-ID", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 };
 
 const statusInfo = (status: string) => {
@@ -86,98 +71,293 @@ const statusInfo = (status: string) => {
   }
 };
 
+const MemberCard = memo(function MemberCard({ member }: { member: SubscriptionListRow }) {
+  const status = statusInfo(member.status);
+  const used = Math.max(0, member.used_kg);
+  const remaining = Math.max(0, member.remaining_kg);
+  const progress =
+    member.quota_kg > 0
+      ? Math.min(100, (used / member.quota_kg) * 100)
+      : 0;
+
+  return (
+    <View style={[styles.memberCard, { marginBottom: 12 }]}>
+      <View style={styles.memberTop}>
+        <View style={styles.memberIcon}>
+          <Award size={21} color={C.primary} />
+        </View>
+
+        <View style={styles.memberIdentity}>
+          <Text style={styles.customerName}>
+            {member.customer_name}
+          </Text>
+          <Text style={styles.memberNumber}>
+            {member.member_no}
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.statusBadge,
+            { backgroundColor: status.background },
+          ]}
+        >
+          <Text style={[styles.statusText, { color: status.color }]}>
+            {status.label}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.packageBox}>
+        <Text style={styles.packageName}>
+          {member.package_name}
+        </Text>
+        <Text style={styles.packageType}>
+          Paket {member.package_type}
+        </Text>
+      </View>
+
+      <View style={styles.quotaNumbers}>
+        <QuotaValue label="Total Kuota" value={`${member.quota_kg} KG`} />
+        <QuotaValue label="Terpakai" value={`${used} KG`} />
+        <QuotaValue
+          label="Sisa Kuota"
+          value={`${remaining} KG`}
+          highlight
+        />
+      </View>
+
+      <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${progress}%` },
+          ]}
+        />
+      </View>
+
+      <View style={styles.progressCaption}>
+        <Text style={styles.progressText}>
+          {Math.round(progress)}% digunakan
+        </Text>
+        <Text style={styles.progressText}>
+          Dibeli: {formatDateMedium(member.start_date)}
+        </Text>
+      </View>
+
+      <View style={styles.cardFooter}>
+        <Text style={styles.priceLabel}>Harga pembelian</Text>
+        <Text style={styles.priceValue}>
+          {money(member.price_paid)}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
 export default function MemberListScreen() {
-  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [members, setMembers] = useState<SubscriptionListRow[]>([]);
+  const [statistics, setStatistics] = useState<SubscriptionStats>({
+    total: 0,
+    active: 0,
+    usedUp: 0,
+    remainingKg: 0,
+  });
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterStatus>("all");
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
-  const loadMembers = useCallback(async (isRefresh = false) => {
-    try {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
+  const filtersRef = useRef({ search, filter, count: 0 });
+  const hasLoadedOnceRef = useRef(false);
+  const requestIdRef = useRef(0);
 
-      setError("");
+  useEffect(() => {
+    filtersRef.current = { search, filter, count: members.length };
+  }, [search, filter, members.length]);
 
-      const result = await MemberService.getAllSubscriptions();
-      setMembers(result);
-    } catch (err: any) {
-      setError(err?.message || "Gagal mengambil data membership.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const loadMembers = useCallback(
+    async (
+      mode: "initial" | "refresh" | "more" = "initial",
+      searchValue = filtersRef.current.search,
+      filterValue = filtersRef.current.filter,
+    ) => {
+      const requestId = ++requestIdRef.current;
+      const offset = mode === "more" ? filtersRef.current.count : 0;
+
+      try {
+        if (mode === "refresh") setRefreshing(true);
+        else if (mode === "more") setLoadingMore(true);
+        else setLoading(true);
+
+        setError("");
+
+        if (mode === "more") {
+          const pageRes = await MemberService.getAllSubscriptions({
+            search: searchValue,
+            status: filterValue,
+            limit: PAGE_SIZE,
+            offset,
+          });
+          if (requestId !== requestIdRef.current) return;
+          setMembers((prev) => [...prev, ...pageRes.rows]);
+          setHasMore(pageRes.hasMore);
+        } else {
+          const [pageRes, statsRes] = await Promise.all([
+            MemberService.getAllSubscriptions({
+              search: searchValue,
+              status: filterValue,
+              limit: PAGE_SIZE,
+              offset: 0,
+            }),
+            MemberService.getSubscriptionStatistics(),
+          ]);
+          if (requestId !== requestIdRef.current) return;
+          setMembers(pageRes.rows);
+          setHasMore(pageRes.hasMore);
+          setStatistics(statsRes);
+        }
+
+        hasLoadedOnceRef.current = true;
+      } catch (err: any) {
+        if (requestId === requestIdRef.current) {
+          setError(err?.message || "Gagal mengambil data membership.");
+        }
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      loadMembers();
+      loadMembers(hasLoadedOnceRef.current ? "refresh" : "initial");
     }, [loadMembers]),
   );
 
-  const filteredMembers = useMemo(() => {
-    return members.filter((member) => {
-      if (filter !== "all" && member.status !== filter) return false;
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return;
+    const timer = setTimeout(() => {
+      loadMembers("refresh", search, filtersRef.current.filter);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, loadMembers]);
 
-      const keyword = search.trim().toLowerCase();
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return;
+    loadMembers("refresh", filtersRef.current.search, filter);
+  }, [filter, loadMembers]);
 
-      if (!keyword) return true;
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loadingMore || loading) return;
+    loadMembers("more");
+  }, [hasMore, loadingMore, loading, loadMembers]);
 
-      return (
-        member.customer_name.toLowerCase().includes(keyword) ||
-        member.member_no.toLowerCase().includes(keyword) ||
-        member.package_name.toLowerCase().includes(keyword) ||
-        (member.customer_phone || "").includes(keyword)
-      );
-    });
-  }, [members, search, filter]);
+  const keyExtractor = useCallback((item: SubscriptionListRow) => String(item.id), []);
+  const renderMember = useCallback(
+    ({ item }: { item: SubscriptionListRow }) => <MemberCard member={item} />,
+    [],
+  );
 
-  const statistics = useMemo(() => {
-    return {
-      total: members.length,
-      active: members.filter((m) => m.status === "active").length,
-      usedUp: members.filter((m) => m.status === "used_up").length,
-      remaining: members
-        .filter((m) => m.status === "active")
-        .reduce((sum, m) => sum + Math.max(0, m.remaining_kg), 0),
-    };
-  }, [members]);
+  const listHeader = useMemo(
+    () => (
+      <>
+        <View style={styles.statsGrid}>
+          <StatCard
+            icon={<Users size={19} color={C.primary} />}
+            label="Total Kartu"
+            value={String(statistics.total)}
+            background={C.primaryLight}
+          />
+          <StatCard
+            icon={<CheckCircle2 size={19} color={C.green} />}
+            label="Member Aktif"
+            value={String(statistics.active)}
+            background={C.greenLight}
+          />
+          <StatCard
+            icon={<CircleAlert size={19} color={C.amber} />}
+            label="Kuota Habis"
+            value={String(statistics.usedUp)}
+            background={C.amberLight}
+          />
+          <StatCard
+            icon={<Wallet size={19} color={C.primary} />}
+            label="Sisa Kuota"
+            value={`${statistics.remainingKg} KG`}
+            background={C.primaryLight}
+          />
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {(
+            [
+              ["all", "Semua"],
+              ["active", "Aktif"],
+              ["used_up", "Kuota Habis"],
+              ["cancelled", "Dibatalkan"],
+            ] as [FilterStatus, string][]
+          ).map(([value, label]) => (
+            <Pressable
+              key={value}
+              onPress={() => setFilter(value)}
+              style={[
+                styles.filterButton,
+                filter === value && styles.filterButtonActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  filter === value && styles.filterTextActive,
+                ]}
+              >
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <View style={styles.listHeader}>
+          <View>
+            <Text style={styles.listTitle}>Daftar Member</Text>
+            <Text style={styles.listSubtitle}>
+              {members.length} kartu ditampilkan{hasMore ? "+" : ""}
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => loadMembers("refresh")}
+            style={styles.refreshButton}
+            disabled={refreshing}
+          >
+            <RefreshCw size={17} color={C.primary} />
+          </Pressable>
+        </View>
+      </>
+    ),
+    [statistics, filter, members.length, hasMore, refreshing, loadMembers],
+  );
 
   return (
     <Page
       title="Membership"
       subtitle="Kelola kartu member dan pemakaian kuota pelanggan."
+      scroll={false}
     >
-      <View style={styles.statsGrid}>
-        <StatCard
-          icon={<Users size={19} color={C.primary} />}
-          label="Total Kartu"
-          value={String(statistics.total)}
-          background={C.primaryLight}
-        />
-        <StatCard
-          icon={<CheckCircle2 size={19} color={C.green} />}
-          label="Member Aktif"
-          value={String(statistics.active)}
-          background={C.greenLight}
-        />
-        <StatCard
-          icon={<CircleAlert size={19} color={C.amber} />}
-          label="Kuota Habis"
-          value={String(statistics.usedUp)}
-          background={C.amberLight}
-        />
-        <StatCard
-          icon={<Wallet size={19} color={C.primary} />}
-          label="Sisa Kuota"
-          value={`${statistics.remaining} KG`}
-          background={C.primaryLight}
-        />
-      </View>
-
-      <View style={styles.searchBox}>
+      <View style={[styles.searchBox, { marginBottom: 12 }]}>
         <Search size={19} color={C.muted} />
         <TextInput
           value={search}
@@ -194,56 +374,6 @@ export default function MemberListScreen() {
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        {(
-          [
-            ["all", "Semua"],
-            ["active", "Aktif"],
-            ["used_up", "Kuota Habis"],
-            ["cancelled", "Dibatalkan"],
-          ] as [FilterStatus, string][]
-        ).map(([value, label]) => (
-          <Pressable
-            key={value}
-            onPress={() => setFilter(value)}
-            style={[
-              styles.filterButton,
-              filter === value && styles.filterButtonActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                filter === value && styles.filterTextActive,
-              ]}
-            >
-              {label}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      <View style={styles.listHeader}>
-        <View>
-          <Text style={styles.listTitle}>Daftar Member</Text>
-          <Text style={styles.listSubtitle}>
-            {filteredMembers.length} kartu ditemukan
-          </Text>
-        </View>
-
-        <Pressable
-          onPress={() => loadMembers(true)}
-          style={styles.refreshButton}
-          disabled={refreshing}
-        >
-          <RefreshCw size={17} color={C.primary} />
-        </Pressable>
-      </View>
-
       {loading ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={C.primary} />
@@ -255,106 +385,42 @@ export default function MemberListScreen() {
           <Text style={styles.emptyTitle}>Gagal memuat member</Text>
           <Text style={styles.emptyText}>{error}</Text>
           <Pressable
-            onPress={() => loadMembers()}
+            onPress={() => loadMembers("initial")}
             style={styles.retryButton}
           >
             <Text style={styles.retryText}>Coba Lagi</Text>
           </Pressable>
         </View>
-      ) : filteredMembers.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Award size={30} color={C.muted} />
-          <Text style={styles.emptyTitle}>Member tidak ditemukan</Text>
-          <Text style={styles.emptyText}>
-            Belum ada data yang sesuai dengan pencarian atau filter.
-          </Text>
-        </View>
       ) : (
-        <View style={styles.memberList}>
-          {filteredMembers.map((member) => {
-            const status = statusInfo(member.status);
-            const used = Math.max(0, member.used_kg);
-            const remaining = Math.max(0, member.remaining_kg);
-            const progress =
-              member.quota_kg > 0
-                ? Math.min(100, (used / member.quota_kg) * 100)
-                : 0;
-
-            return (
-              <View key={member.id} style={styles.memberCard}>
-                <View style={styles.memberTop}>
-                  <View style={styles.memberIcon}>
-                    <Award size={21} color={C.primary} />
-                  </View>
-
-                  <View style={styles.memberIdentity}>
-                    <Text style={styles.customerName}>
-                      {member.customer_name}
-                    </Text>
-                    <Text style={styles.memberNumber}>
-                      {member.member_no}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: status.background },
-                    ]}
-                  >
-                    <Text style={[styles.statusText, { color: status.color }]}>
-                      {status.label}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.packageBox}>
-                  <Text style={styles.packageName}>
-                    {member.package_name}
-                  </Text>
-                  <Text style={styles.packageType}>
-                    Paket {member.package_type}
-                  </Text>
-                </View>
-
-                <View style={styles.quotaNumbers}>
-                  <QuotaValue label="Total Kuota" value={`${member.quota_kg} KG`} />
-                  <QuotaValue label="Terpakai" value={`${used} KG`} />
-                  <QuotaValue
-                    label="Sisa Kuota"
-                    value={`${remaining} KG`}
-                    highlight
-                  />
-                </View>
-
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      { width: `${progress}%` },
-                    ]}
-                  />
-                </View>
-
-                <View style={styles.progressCaption}>
-                  <Text style={styles.progressText}>
-                    {Math.round(progress)}% digunakan
-                  </Text>
-                  <Text style={styles.progressText}>
-                    Dibeli: {formatDate(member.start_date)}
-                  </Text>
-                </View>
-
-                <View style={styles.cardFooter}>
-                  <Text style={styles.priceLabel}>Harga pembelian</Text>
-                  <Text style={styles.priceValue}>
-                    {money(member.price_paid)}
-                  </Text>
-                </View>
+        <FlashList
+          data={members}
+          renderItem={renderMember}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={listHeader}
+          showsVerticalScrollIndicator={false}
+          refreshing={refreshing}
+          onRefresh={() => loadMembers("refresh")}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.4}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: 24 }}
+          ListEmptyComponent={
+            <View style={styles.emptyCard}>
+              <Award size={30} color={C.muted} />
+              <Text style={styles.emptyTitle}>Member tidak ditemukan</Text>
+              <Text style={styles.emptyText}>
+                Belum ada data yang sesuai dengan pencarian atau filter.
+              </Text>
+            </View>
+          }
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={{ paddingVertical: 14, alignItems: "center" }}>
+                <ActivityIndicator color={C.primary} />
               </View>
-            );
-          })}
-        </View>
+            ) : undefined
+          }
+        />
       )}
     </Page>
   );

@@ -1,11 +1,12 @@
 
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Pressable,
+  StyleSheet,
   Text,
   View,
-  Pressable,
-  ActivityIndicator,
 } from "react-native";
 
 import { router, useLocalSearchParams } from "expo-router";
@@ -18,15 +19,12 @@ import {
 
 import { Field, Page, C } from "../../components/ui";
 
-import {
-  User,
-  MapPin,
-  FileText,
-  Save,
-  X,
-  UserPlus,
-  Phone,
-} from "lucide-react-native";
+import FileText from "lucide-react-native/icons/file-text";
+import MapPin from "lucide-react-native/icons/map-pin";
+import Save from "lucide-react-native/icons/save";
+import User from "lucide-react-native/icons/user";
+import UserPlus from "lucide-react-native/icons/user-plus";
+import X from "lucide-react-native/icons/x";
 
 export default function CustomerForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -270,11 +268,11 @@ export default function CustomerForm() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   loading: {
     padding: 40,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
   },
   loadingText: {
     color: C.muted,
@@ -286,8 +284,8 @@ const styles = {
     borderWidth: 1,
     borderColor: "#DCE6FA",
     padding: 15,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 24,
     borderRadius: 4,
@@ -298,14 +296,14 @@ const styles = {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#DCE6FA",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
   introTitle: {
     color: C.text,
     fontSize: 14,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
   introSubtitle: {
     color: C.muted,
@@ -317,15 +315,15 @@ const styles = {
     marginBottom: 22,
   },
   sectionHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginBottom: 11,
   },
   sectionTitle: {
     color: C.text,
     fontSize: 13,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
   formCard: {
     backgroundColor: "#F8FAFC",
@@ -346,16 +344,16 @@ const styles = {
   saveButton: {
     paddingVertical: 15,
     borderRadius: 4,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 9,
     marginBottom: 10,
   },
   saveText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
   cancelButton: {
     backgroundColor: "#FFFFFF",
@@ -363,21 +361,21 @@ const styles = {
     borderColor: "#CBD5E1",
     paddingVertical: 14,
     borderRadius: 4,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 9,
   },
   cancelText: {
     color: C.text,
     fontSize: 13,
-    fontWeight: "800" as const,
+    fontWeight: "800",
   },
   footer: {
     color: C.muted,
     fontSize: 10,
-    textAlign: "center" as const,
+    textAlign: "center",
     marginTop: 18,
     marginBottom: 10,
   },
-};
+});

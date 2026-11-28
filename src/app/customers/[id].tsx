@@ -1,23 +1,21 @@
 
 import React, { useCallback, useState } from "react";
-import { Alert, Pressable, Text, View, ActivityIndicator } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View, ActivityIndicator } from "react-native";
 import {
   useFocusEffect,
   useLocalSearchParams,
   router,
 } from "expo-router";
 
-import {
-  Pencil,
-  Trash2,
-  Phone,
-  MapPin,
-  ClipboardList,
-  Users,
-  CalendarDays,
-  FileText,
-  ArrowLeft,
-} from "lucide-react-native";
+import ArrowLeft from "lucide-react-native/icons/arrow-left";
+import CalendarDays from "lucide-react-native/icons/calendar-days";
+import ClipboardList from "lucide-react-native/icons/clipboard-list";
+import FileText from "lucide-react-native/icons/file-text";
+import MapPin from "lucide-react-native/icons/map-pin";
+import Pencil from "lucide-react-native/icons/pencil";
+import Phone from "lucide-react-native/icons/phone";
+import Trash2 from "lucide-react-native/icons/trash";
+import Users from "lucide-react-native/icons/users";
 
 import {
   deleteCustomer,
@@ -25,8 +23,37 @@ import {
 } from "../../repositories/customer.repository";
 
 import type { Customer } from "../../types/database";
+import { formatDateLong } from "../../utils/format";
 
 import { C, Page } from "../../components/ui";
+
+function InfoRow({
+  icon,
+  label,
+  value,
+  last = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View
+      style={[
+        styles.infoRow,
+        !last && styles.infoDivider,
+      ]}
+    >
+      <View style={styles.infoIcon}>{icon}</View>
+
+      <View style={{ flex: 1 }}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
 
 export default function CustomerDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -81,45 +108,7 @@ export default function CustomerDetail() {
     );
   };
 
-  const formatDate = (date?: string | null) => {
-    if (!date) return "-";
-
-    const parsed = new Date(date);
-
-    if (Number.isNaN(parsed.getTime())) return date.slice(0, 10);
-
-    return parsed.toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
-  };
-
-  const InfoRow = ({
-    icon,
-    label,
-    value,
-    last = false,
-  }: {
-    icon: React.ReactNode;
-    label: string;
-    value: string;
-    last?: boolean;
-  }) => (
-    <View
-      style={[
-        styles.infoRow,
-        !last && styles.infoDivider,
-      ]}
-    >
-      <View style={styles.infoIcon}>{icon}</View>
-
-      <View style={{ flex: 1 }}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoValue}>{value}</Text>
-      </View>
-    </View>
-  );
+  const formatDate = formatDateLong;
 
   if (loading) {
     return (
@@ -323,11 +312,11 @@ export default function CustomerDetail() {
   );
 }
 
-const styles = {
+const styles = StyleSheet.create({
   loading: {
     padding: 40,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
   },
   loadingText: {
     color: C.muted,
@@ -336,8 +325,8 @@ const styles = {
   },
   empty: {
     padding: 28,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyIcon: {
     width: 58,
@@ -345,20 +334,20 @@ const styles = {
     backgroundColor: "#F1F5F9",
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
   emptyTitle: {
     color: C.text,
     fontSize: 15,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     marginTop: 14,
   },
   emptyDescription: {
     color: C.muted,
     fontSize: 11,
-    textAlign: "center" as const,
+    textAlign: "center",
     lineHeight: 17,
     marginTop: 6,
   },
@@ -368,14 +357,14 @@ const styles = {
     paddingHorizontal: 17,
     paddingVertical: 12,
     borderRadius: 4,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   backButtonText: {
     color: "#FFFFFF",
     fontSize: 12,
-    fontWeight: "800" as const,
+    fontWeight: "800",
   },
   profileCard: {
     backgroundColor: "#F8FAFC",
@@ -386,8 +375,8 @@ const styles = {
     marginBottom: 14,
   },
   profileTop: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 13,
   },
   avatar: {
@@ -396,14 +385,14 @@ const styles = {
     backgroundColor: "#E8EEFF",
     borderWidth: 1,
     borderColor: "#D7E1FA",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
   profileName: {
     color: C.text,
     fontSize: 17,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
   profileId: {
     color: C.muted,
@@ -416,8 +405,8 @@ const styles = {
     marginVertical: 14,
   },
   joinedRow: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   joinedText: {
@@ -431,20 +420,20 @@ const styles = {
     padding: 16,
     borderRadius: 4,
     marginBottom: 23,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "space-between" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   summaryLabel: {
     color: C.muted,
     fontSize: 10,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     letterSpacing: 0.5,
   },
   summaryValue: {
     color: C.text,
     fontSize: 28,
-    fontWeight: "900" as const,
+    fontWeight: "900",
     marginTop: 4,
   },
   summaryDescription: {
@@ -458,23 +447,23 @@ const styles = {
     backgroundColor: "#EEF2FF",
     borderWidth: 1,
     borderColor: "#E0E7FF",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
   section: {
     marginBottom: 22,
   },
   sectionHeader: {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginBottom: 11,
   },
   sectionTitle: {
     color: C.text,
     fontSize: 13,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
   infoCard: {
     backgroundColor: "#F8FAFC",
@@ -485,8 +474,8 @@ const styles = {
   },
   infoRow: {
     paddingVertical: 14,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
   },
   infoDivider: {
@@ -499,20 +488,20 @@ const styles = {
     backgroundColor: "#E8EEFF",
     borderWidth: 1,
     borderColor: "#DCE5FA",
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 4,
   },
   infoLabel: {
     color: C.muted,
     fontSize: 9,
-    fontWeight: "800" as const,
+    fontWeight: "800",
     letterSpacing: 0.4,
   },
   infoValue: {
     color: C.text,
     fontSize: 12,
-    fontWeight: "600" as const,
+    fontWeight: "600",
     marginTop: 5,
     lineHeight: 18,
   },
@@ -534,15 +523,15 @@ const styles = {
   editButton: {
     paddingVertical: 15,
     borderRadius: 4,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 9,
   },
   editButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "900" as const,
+    fontWeight: "900",
   },
   deleteButton: {
     backgroundColor: "#FFFFFF",
@@ -550,21 +539,21 @@ const styles = {
     borderColor: "#FECACA",
     paddingVertical: 14,
     borderRadius: 4,
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 9,
   },
   deleteButtonText: {
     color: "#DC2626",
     fontSize: 13,
-    fontWeight: "800" as const,
+    fontWeight: "800",
   },
   footer: {
     color: C.muted,
     fontSize: 10,
-    textAlign: "center" as const,
+    textAlign: "center",
     marginTop: 18,
     marginBottom: 10,
   },
-};
+});

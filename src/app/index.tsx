@@ -1,40 +1,41 @@
 
 import { router, useFocusEffect } from "expo-router";
-import {
-  ArrowLeftRight,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Home,
-  Plus,
-  ReceiptText,
-  RefreshCw,
-  Settings,
-  Shirt,
-  ShoppingBag,
-  TrendingUp,
-  Users,
-  Wallet,
-  HelpCircle,
-} from "lucide-react-native";
-import { useCallback, useState } from "react";
+import ArrowLeftRight from "lucide-react-native/icons/arrow-left-right";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import Clock3 from "lucide-react-native/icons/clock-3";
+import FileText from "lucide-react-native/icons/file-text";
+import HelpCircle from "lucide-react-native/icons/circle-question-mark";
+import Home from "lucide-react-native/icons/house";
+import Plus from "lucide-react-native/icons/plus";
+import ReceiptText from "lucide-react-native/icons/receipt-text";
+import RefreshCw from "lucide-react-native/icons/refresh-cw";
+import Settings from "lucide-react-native/icons/settings";
+import Shirt from "lucide-react-native/icons/shirt";
+import ShoppingBag from "lucide-react-native/icons/shopping-bag";
+import TrendingUp from "lucide-react-native/icons/trending-up";
+import Users from "lucide-react-native/icons/users";
+import Wallet from "lucide-react-native/icons/wallet";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   AppState,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   getDashboardData,
   type DashboardData,
 } from "../repositories/dasbhoard.repository";
+import { formatDateFull, formatMoney as money, formatNumber } from "../utils/format";
 
 const COLORS = {
   background: "#F4F6FA",
@@ -136,23 +137,8 @@ const statusColors: Record<
   cancelled: { color: "#D95757", background: "#FFF0F0" },
 };
 
-// HELPERS
-const money = (value: number) =>
-  new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }).format(value || 0);
-
-const formatDate = (date: Date) =>
-  date.toLocaleDateString("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 // REUSABLE COMPONENTS
-function SectionTitle({
+const SectionTitle = memo(function SectionTitle({
   title,
   action,
   onPress,
@@ -173,9 +159,9 @@ function SectionTitle({
       ) : null}
     </View>
   );
-}
+});
 
-function StatCard({
+const StatCard = memo(function StatCard({
   icon: Icon,
   value,
   label,
@@ -200,15 +186,15 @@ function StatCard({
       </View>
 
       <Text style={styles.statValue}>
-        {value.toLocaleString("id-ID")}
+        {formatNumber(value)}
       </Text>
 
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
-}
+});
 
-function MenuCard({
+const MenuCard = memo(function MenuCard({
   menu,
   onPress,
 }: {
@@ -253,18 +239,29 @@ function MenuCard({
       </View>
     </Pressable>
   );
-}
+});
 
 // DASHBOARD
 export default function Index() {
+  const insets = useSafeAreaInsets();
   const [dashboard, setDashboard] =
     useState<DashboardData | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const isFetchingRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+
+  const todayLabel = useMemo(
+    () => formatDateFull(new Date()).toUpperCase(),
+    [],
+  );
 
   const loadDashboard = useCallback(
     async (silent = false) => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+
       if (!silent) {
         setLoading(true);
       } else {
@@ -273,8 +270,8 @@ export default function Index() {
 
       try {
         const data = await getDashboardData();
-
         setDashboard(data);
+        hasLoadedRef.current = true;
       } catch (error: unknown) {
         const message =
           error instanceof Error
@@ -285,6 +282,7 @@ export default function Index() {
           Alert.alert("Gagal memuat data", message);
         }
       } finally {
+        isFetchingRef.current = false;
         setLoading(false);
         setRefreshing(false);
       }
@@ -292,14 +290,10 @@ export default function Index() {
     [],
   );
 
-  // REALTIME REFRESH
+  // Refresh saat fokus layar atau kembali dari background (tanpa polling 5 detik)
   useFocusEffect(
     useCallback(() => {
-      loadDashboard();
-
-      const interval = setInterval(() => {
-        loadDashboard(true);
-      }, 5000);
+      loadDashboard(hasLoadedRef.current);
 
       const subscription = AppState.addEventListener(
         "change",
@@ -311,14 +305,13 @@ export default function Index() {
       );
 
       return () => {
-        clearInterval(interval);
         subscription.remove();
       };
     }, [loadDashboard]),
   );
 
   // NAVIGATION
-  const openMenu = (name: string) => {
+  const openMenu = useCallback((name: string) => {
     const routes: Record<string, string> = {
       Pelanggan: "/customers",
       Pesanan: "/orders",
@@ -333,7 +326,7 @@ export default function Index() {
     };
 
     router.push((routes[name] || "/orders") as never);
-  };
+  }, []);
 
   const recentOrders = dashboard?.recentOrders ?? [];
 
@@ -346,7 +339,18 @@ export default function Index() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: Math.max(insets.top, 18) },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadDashboard(true)}
+            tintColor={COLORS.primary}
+            colors={[COLORS.primary]}
+          />
+        }
       >
         {/* HEADER */}
 
@@ -396,7 +400,7 @@ export default function Index() {
           <View style={styles.dateBadge}>
             <View style={styles.dateDot} />
             <Text style={styles.greetingDate}>
-              {formatDate(new Date()).toUpperCase()}
+              {todayLabel}
             </Text>
           </View>
 
@@ -713,7 +717,15 @@ export default function Index() {
 
       {/* BOTTOM NAVIGATION */}
 
-      <View style={styles.bottomNav}>
+      <View
+        style={[
+          styles.bottomNav,
+          {
+            height: 71 + Math.max(insets.bottom, 5),
+            paddingBottom: Math.max(insets.bottom, 5),
+          },
+        ]}
+      >
         <Pressable style={styles.navItem}>
           <Home
             size={21}
@@ -783,12 +795,6 @@ const SHADOW = {
   shadowOpacity: 0.055,
   shadowRadius: 8,
   elevation: 2,
-};
-
-const INSET = {
-  backgroundColor: "#F3F5F9",
-  borderWidth: 1,
-  borderColor: "#E8ECF3",
 };
 
 const styles = StyleSheet.create({

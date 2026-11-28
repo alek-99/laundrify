@@ -3,6 +3,7 @@ import * as SQLite from "expo-sqlite";
 export const DATABASE_NAME = "laundrifyV2.db";
 
 let database: SQLite.SQLiteDatabase | null = null;
+let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 type ExclusiveTransaction = Parameters<
   Parameters<SQLite.SQLiteDatabase["withExclusiveTransactionAsync"]>[0]
@@ -26,17 +27,28 @@ export async function runExclusiveTransaction<T>(
   return result;
 }
 
-export async function getDatabase() {
+export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (database) return database;
+  if (databasePromise) return databasePromise;
 
-  database = await SQLite.openDatabaseAsync(DATABASE_NAME);
+  databasePromise = (async () => {
+    const db = await SQLite.openDatabaseAsync(DATABASE_NAME);
 
-  await database.execAsync(`
-    PRAGMA foreign_keys = ON;
-    PRAGMA journal_mode = WAL;
-    PRAGMA synchronous = NORMAL;
-    PRAGMA busy_timeout = 5000;
-  `);
+    await db.execAsync(`
+      PRAGMA foreign_keys = ON;
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
+    `);
 
-  return database;
+    database = db;
+    return db;
+  })();
+
+  try {
+    return await databasePromise;
+  } catch (error) {
+    databasePromise = null;
+    throw error;
+  }
 }

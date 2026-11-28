@@ -1,4 +1,5 @@
 import { getDatabase } from "../database";
+import { getLocalDayRangeUtc } from "../utils/format";
 
 export interface DashboardData {
   todayIncome: number;
@@ -7,7 +8,7 @@ export interface DashboardData {
   activeOrders: number;
   unpaidOrders: number;
   totalCustomers: number;
-  recentOrders: Array<{
+  recentOrders: {
     id: number;
     order_number: string;
     customer_name: string;
@@ -17,11 +18,12 @@ export interface DashboardData {
     remaining: number;
     order_date: string;
     services: string | null;
-  }>;
+  }[];
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
   const db = await getDatabase();
+  const { start, end } = getLocalDayRangeUtc();
 
   const [income, orders, customers, recentOrders] = await Promise.all([
     db.getFirstAsync<{ total: number; transactions: number }>(
@@ -30,7 +32,10 @@ export async function getDashboardData(): Promise<DashboardData> {
          COUNT(*) AS transactions
        FROM payments
        WHERE is_void = 0
-         AND date(payment_date, 'localtime') = date('now', 'localtime')`,
+         AND payment_date >= ?
+         AND payment_date < ?`,
+      start,
+      end,
     ),
     db.getFirstAsync<{
       total: number;
@@ -43,11 +48,7 @@ export async function getDashboardData(): Promise<DashboardData> {
            WHEN status NOT IN ('completed', 'cancelled') THEN 1 ELSE 0
          END), 0) AS active,
          COALESCE(SUM(CASE
-           WHEN total > COALESCE((
-             SELECT SUM(p.amount)
-             FROM payments p
-             WHERE p.order_id = orders.id AND p.is_void = 0
-           ), 0) THEN 1 ELSE 0
+           WHEN paid_amount < total THEN 1 ELSE 0
          END), 0) AS unpaid
        FROM orders
        WHERE deleted_at IS NULL`,
@@ -64,8 +65,8 @@ export async function getDashboardData(): Promise<DashboardData> {
          COALESCE(c.name, o.customer_name, 'Pelanggan umum') AS customer_name,
          o.status,
          o.total,
-         COALESCE(p.paid, 0) AS paid,
-         o.total - COALESCE(p.paid, 0) AS remaining,
+         o.paid_amount AS paid,
+         MAX(0, o.total - o.paid_amount) AS remaining,
          o.order_date,
          (
            SELECT group_concat(x.service_name, ', ')
@@ -77,12 +78,6 @@ export async function getDashboardData(): Promise<DashboardData> {
          ) AS services
        FROM orders o
        LEFT JOIN customers c ON c.id = o.customer_id
-       LEFT JOIN (
-         SELECT order_id, SUM(amount) AS paid
-         FROM payments
-         WHERE is_void = 0
-         GROUP BY order_id
-       ) p ON p.order_id = o.id
        WHERE o.deleted_at IS NULL
        ORDER BY o.order_date DESC, o.id DESC
        LIMIT 5`,

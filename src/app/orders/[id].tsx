@@ -1,16 +1,14 @@
-import {
-  Award,
-  Check,
-  Clock,
-  FileText,
-  Minus,
-  Plus,
-  Printer,
-  Send,
-  Tag,
-  Trash2,
-  User,
-} from "lucide-react-native";
+import Award from "lucide-react-native/icons/award";
+import Check from "lucide-react-native/icons/check";
+import Clock from "lucide-react-native/icons/clock";
+import FileText from "lucide-react-native/icons/file-text";
+import Minus from "lucide-react-native/icons/minus";
+import Plus from "lucide-react-native/icons/plus";
+import Printer from "lucide-react-native/icons/printer";
+import Send from "lucide-react-native/icons/send";
+import Tag from "lucide-react-native/icons/tag";
+import Trash2 from "lucide-react-native/icons/trash";
+import User from "lucide-react-native/icons/user";
 
 import {
   router,
@@ -20,7 +18,6 @@ import {
 
 import {
   useCallback,
-  useEffect,
   useState,
 } from "react";
 
@@ -141,13 +138,10 @@ function LabelBrand({
   logoSubtext,
   paperWidth,
 }: LabelBrandProps) {
-  const [imageError, setImageError] = useState(false);
-
-  useEffect(() => {
-    setImageError(false);
-  }, [logoUri]);
+  const [failedLogoUri, setFailedLogoUri] = useState<string | null>(null);
 
   const remoteLogo = logoUri?.trim();
+  const imageError = Boolean(remoteLogo) && failedLogoUri === remoteLogo;
 
   const imageSource =
     remoteLogo && !imageError
@@ -165,7 +159,11 @@ function LabelBrand({
             : s.labelLogo88,
         ]}
         resizeMode="contain"
-        onError={() => setImageError(true)}
+        onError={() => {
+          if (remoteLogo) {
+            setFailedLogoUri(remoteLogo);
+          }
+        }}
       />
 
       <View style={s.labelBrandText}>
@@ -710,26 +708,6 @@ export default function OrderDetail() {
     useState(false);
 
   // ===================================================
-  // AUTO DETECT PAPER WIDTH
-  // ===================================================
-
-  useEffect(() => {
-    const detectedWidth = Number(
-      order?.paper_width ||
-        order?.printer_paper_width ||
-        order?.thermal_width ||
-        0,
-    );
-
-    if (
-      detectedWidth === 58 ||
-      detectedWidth === 88
-    ) {
-      setPaperWidth(detectedWidth);
-    }
-  }, [order]);
-
-  // ===================================================
   // LOAD ORDER
   // ===================================================
 
@@ -747,6 +725,27 @@ export default function OrderDetail() {
       );
 
       setOrder(data);
+
+      const widthMeta: {
+        id?: number;
+        paper_width?: unknown;
+        printer_paper_width?: unknown;
+        thermal_width?: unknown;
+      } | null = data;
+
+      const detectedWidth = Number(
+        widthMeta?.paper_width ||
+          widthMeta?.printer_paper_width ||
+          widthMeta?.thermal_width ||
+          0,
+      );
+
+      if (
+        detectedWidth === 58 ||
+        detectedWidth === 88
+      ) {
+        setPaperWidth(detectedWidth);
+      }
     } catch (err: any) {
       Alert.alert(
         "Gagal memuat pesanan",

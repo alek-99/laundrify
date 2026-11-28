@@ -1,5 +1,9 @@
 
-import React from "react";
+import Award from "lucide-react-native/icons/award";
+import Minus from "lucide-react-native/icons/minus";
+import Plus from "lucide-react-native/icons/plus";
+import Trash2 from "lucide-react-native/icons/trash";
+import { memo } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -7,7 +11,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Award, Minus, Plus, Trash2 } from "lucide-react-native";
 import { money } from "../ui";
 
 export interface OrderItemCardData {
@@ -43,7 +46,7 @@ const C = {
   red: "#D34B55",
 };
 
-export default function OrderItemCard({
+const OrderItemCard = memo(function OrderItemCard({
   item,
   quotaAvailable = 0,
   quotaEnabled = false,
@@ -183,7 +186,9 @@ export default function OrderItemCard({
       )}
     </View>
   );
-}
+});
+
+export default OrderItemCard;
 
 const styles = StyleSheet.create({
   card: {

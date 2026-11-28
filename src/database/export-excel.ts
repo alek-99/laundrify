@@ -1,23 +1,15 @@
 
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as XLSX from "xlsx-js-style";
 
-import { getDatabase } from "./index";
 import { getAllSettings } from "../repositories/settings.repository";
+import { getExportRange, type ExportPeriod, type ExportRange } from "../utils/export-range";
+import { formatDateLong, getLocalDateRangeUtc } from "../utils/format";
+import { getDatabase } from "./index";
 
-// ==========================================
-// TYPES
-// ==========================================
-
-export type ExportPeriod = "week" | "month" | "year";
-
-export interface ExportRange {
-  startDate: string;
-  endDate: string;
-  endExclusive: string;
-  label: string;
-}
+export { getExportRange };
+export type { ExportPeriod, ExportRange };
 
 type DataRow = Record<string, unknown>;
 
@@ -38,105 +30,6 @@ const EXCEL = {
   green: "E8F7EF",
   greenText: "12805C",
 };
-
-// ==========================================
-// DATE HELPERS
-// ==========================================
-
-function pad(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-function dateString(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(date);
-}
-
-function parseDate(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
-
-  if (!match) {
-    throw new Error("Tanggal harus menggunakan format YYYY-MM-DD.");
-  }
-
-  const date = new Date(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-  );
-
-  if (
-    date.getFullYear() !== Number(match[1]) ||
-    date.getMonth() !== Number(match[2]) - 1 ||
-    date.getDate() !== Number(match[3])
-  ) {
-    throw new Error("Tanggal yang dimasukkan tidak valid.");
-  }
-
-  return date;
-}
-
-// ==========================================
-// EXPORT RANGE
-// ==========================================
-
-export function getExportRange(
-  period: ExportPeriod,
-  selectedDate: string,
-): ExportRange {
-  const selected = parseDate(selectedDate);
-
-  let start = new Date(selected);
-  let end = new Date(selected);
-
-  if (period === "week") {
-    const day = (selected.getDay() + 6) % 7;
-
-    start.setDate(selected.getDate() - day);
-
-    end = new Date(start);
-    end.setDate(start.getDate() + 6);
-  } else if (period === "month") {
-    start = new Date(
-      selected.getFullYear(),
-      selected.getMonth(),
-      1,
-    );
-
-    end = new Date(
-      selected.getFullYear(),
-      selected.getMonth() + 1,
-      0,
-    );
-  } else {
-    start = new Date(selected.getFullYear(), 0, 1);
-    end = new Date(selected.getFullYear(), 11, 31);
-  }
-
-  const endExclusive = new Date(end);
-  endExclusive.setDate(endExclusive.getDate() + 1);
-
-  const label =
-    period === "week"
-      ? `Minggu ${dateString(start)} s.d. ${dateString(end)}`
-      : period === "month"
-        ? `Bulan ${pad(selected.getMonth() + 1)}-${selected.getFullYear()}`
-        : `Tahun ${selected.getFullYear()}`;
-
-  return {
-    startDate: dateString(start),
-    endDate: dateString(end),
-    endExclusive: dateString(endExclusive),
-    label,
-  };
-}
 
 // ==========================================
 // EXCEL STYLES
@@ -279,7 +172,7 @@ function createReportSheet(
     ["NAMA USAHA", businessName],
     ["TELEPON", businessPhone || "-"],
     ["PERIODE LAPORAN", range.label],
-    ["TANGGAL EXPORT", formatDate(exportDate)],
+    ["TANGGAL EXPORT", formatDateLong(exportDate)],
     [],
     headers,
     ...dataRows.map((row) =>
@@ -570,8 +463,7 @@ export async function exportExcel(
 
   const db = await getDatabase();
 
-  const start = `${range.startDate} 00:00:00`;
-  const end = `${range.endExclusive} 00:00:00`;
+  const { start, end } = getLocalDateRangeUtc(range.startDate, range.endExclusive);
 
   try {
     // ========================================
@@ -579,13 +471,16 @@ export async function exportExcel(
     // ========================================
 
     const settings = await getAllSettings();
+    const settingsMap = new Map(settings.map((item) => [item.key, item.value?.trim() || ""]));
 
     const businessName =
-      settings.find((item) => item.key === "business_name")?.value?.trim() ||
+      settingsMap.get("laundry_name") ||
+      settingsMap.get("business_name") ||
       "Laundrify";
 
     const businessPhone =
-      settings.find((item) => item.key === "business_phone")?.value?.trim() ||
+      settingsMap.get("laundry_phone") ||
+      settingsMap.get("business_phone") ||
       "-";
 
     const exportDate = new Date();
@@ -791,16 +686,16 @@ export async function exportExcel(
       name: string;
       rows: DataRow[];
     }[] = [
-      { name: "Ringkasan", rows: summary },
-      { name: "Pelanggan", rows: customers },
-      { name: "Layanan", rows: services },
-      { name: "Kategori Kas", rows: categories },
-      { name: "Pesanan", rows: orders },
-      { name: "Detail Pesanan", rows: orderItems },
-      { name: "Pembayaran", rows: payments },
-      { name: "Transaksi Kas", rows: transactions },
-      { name: "Riwayat Status", rows: history },
-    ];
+        { name: "Ringkasan", rows: summary },
+        { name: "Pelanggan", rows: customers },
+        { name: "Layanan", rows: services },
+        { name: "Kategori Kas", rows: categories },
+        { name: "Pesanan", rows: orders },
+        { name: "Detail Pesanan", rows: orderItems },
+        { name: "Pembayaran", rows: payments },
+        { name: "Transaksi Kas", rows: transactions },
+        { name: "Riwayat Status", rows: history },
+      ];
 
     sheetData.forEach((item) => {
       addReportSheet(
@@ -818,8 +713,8 @@ export async function exportExcel(
     // WRITE EXCEL
     // ========================================
 
-    const base64 = XLSX.write(workbook, {
-      type: "base64",
+    const workbookBytes = XLSX.write(workbook, {
+      type: "array",
       bookType: "xlsx",
       cellStyles: true,
     });
@@ -834,17 +729,10 @@ export async function exportExcel(
     const fileName =
       `Laundrify-${safePeriod}-${range.startDate}-sd-${range.endDate}.xlsx`;
 
-    if (!FileSystem.cacheDirectory) {
-      throw new Error(
-        "Folder penyimpanan sementara tidak tersedia.",
-      );
-    }
-
-    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-    await FileSystem.writeAsStringAsync(fileUri, base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const file = new File(Paths.cache, fileName);
+    file.create({ overwrite: true });
+    await file.write(new Uint8Array(workbookBytes));
+    const fileUri = file.uri;
 
     // ========================================
     // SHARE EXCEL

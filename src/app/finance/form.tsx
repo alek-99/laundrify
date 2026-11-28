@@ -9,14 +9,12 @@ import {
 
 import { useFocusEffect, router } from "expo-router";
 
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Check,
-  Tags,
-  Wallet,
-  FileText,
-} from "lucide-react-native";
+import ArrowDownLeft from "lucide-react-native/icons/arrow-down-left";
+import ArrowUpRight from "lucide-react-native/icons/arrow-up-right";
+import Check from "lucide-react-native/icons/check";
+import FileText from "lucide-react-native/icons/file-text";
+import Tags from "lucide-react-native/icons/tags";
+import Wallet from "lucide-react-native/icons/wallet";
 
 import { createTransaction } from "../../services/finance.service";
 import { getCashCategories } from "../../repositories/cash-category.repository";
@@ -28,7 +26,6 @@ import type {
 
 import {
   Button,
-  C,
   Field,
   Page,
 } from "../../components/ui";

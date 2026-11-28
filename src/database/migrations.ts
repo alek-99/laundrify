@@ -1,9 +1,9 @@
 import type { SQLiteDatabase } from "expo-sqlite";
-import { getDatabase } from "./index";
-import { DATABASE_SCHEMA } from "./schema";
+import { getDatabase, runExclusiveTransaction } from "./index";
+import { DATABASE_SCHEMA, SCHEMA_INDEXES_AND_TRIGGERS_SQL } from "./schema";
 import { seedDatabase } from "./seed";
 
-const CURRENT_DATABASE_VERSION = 3;
+export const CURRENT_DATABASE_VERSION = 4;
 
 type TableInfoRow = { name: string; notnull: number };
 
@@ -235,40 +235,135 @@ async function ensureSchemaV2(db: SQLiteDatabase) {
   `);
 }
 
-async function runMigrations(db: SQLiteDatabase) {
-  await db.runAsync(`
-    INSERT OR IGNORE INTO app_meta (key, value)
-    VALUES ('database_version', '1')
-  `);
+/**
+ * v4: Sinkronisasi paid_amount/payment_status, normalisasi timestamp UTC SQLite,
+ * migrasi key pengaturan business_* -> laundry_*, index tambahan & triggers.
+ */
+async function migrateToV4(db: SQLiteDatabase) {
+  await runExclusiveTransaction(db, async (tx) => {
+    await tx.execAsync(`
+      DROP INDEX IF EXISTS idx_orders_status;
+      ${SCHEMA_INDEXES_AND_TRIGGERS_SQL}
 
-  const row = await db.getFirstAsync<{ value: string }>(
-    `SELECT value FROM app_meta WHERE key = 'database_version'`,
-  );
+      UPDATE orders
+      SET paid_amount = COALESCE((
+        SELECT SUM(amount)
+        FROM payments p
+        WHERE p.order_id = orders.id AND p.is_void = 0
+      ), 0);
 
-  const version = Number(row?.value ?? 1);
+      UPDATE orders
+      SET payment_status = CASE
+        WHEN paid_amount >= total THEN 'paid'
+        WHEN paid_amount > 0 THEN 'partial'
+        ELSE 'unpaid'
+      END;
 
-  if (version < 2) {
+      UPDATE cash_transactions
+      SET transaction_date = datetime(transaction_date)
+      WHERE transaction_date LIKE '%T%'
+        AND datetime(transaction_date) IS NOT NULL;
+
+      UPDATE orders
+      SET order_date = datetime(order_date)
+      WHERE order_date LIKE '%T%'
+        AND datetime(order_date) IS NOT NULL;
+
+      UPDATE payments
+      SET payment_date = datetime(payment_date)
+      WHERE payment_date LIKE '%T%'
+        AND datetime(payment_date) IS NOT NULL;
+
+      UPDATE member_subscriptions
+      SET start_date = datetime(start_date)
+      WHERE start_date LIKE '%T%'
+        AND datetime(start_date) IS NOT NULL;
+
+      INSERT INTO app_settings (key, value, updated_at)
+      SELECT 'laundry_name', TRIM(value), CURRENT_TIMESTAMP
+      FROM app_settings
+      WHERE key = 'business_name'
+        AND TRIM(COALESCE(value, '')) != ''
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = CURRENT_TIMESTAMP;
+
+      INSERT INTO app_settings (key, value, updated_at)
+      SELECT 'laundry_phone', TRIM(value), CURRENT_TIMESTAMP
+      FROM app_settings
+      WHERE key = 'business_phone'
+        AND TRIM(COALESCE(value, '')) != ''
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = CURRENT_TIMESTAMP;
+
+      DELETE FROM app_settings
+      WHERE key IN ('business_name', 'business_phone');
+    `);
+  });
+}
+
+async function runUpgrades(db: SQLiteDatabase, fromVersion: number) {
+  if (fromVersion < 2) {
     await migrateOrdersCustomerOptional(db);
   }
 
-  await ensureSchemaV2(db);
-
-  if (version < CURRENT_DATABASE_VERSION) {
-    await db.runAsync(
-      `UPDATE app_meta SET value = ? WHERE key = 'database_version'`,
-      String(CURRENT_DATABASE_VERSION),
-    );
+  if (fromVersion < 3) {
+    await ensureSchemaV2(db);
   }
+
+  // Pastikan tabel & view terbaru tersedia sebelum seeding & migrasi v4.
+  await db.execAsync(DATABASE_SCHEMA);
+
+  if (fromVersion < 3) {
+    await seedDatabase(db, true);
+  } else if (fromVersion < 4) {
+    // Pastikan kategori kas bawaan tetap lengkap jika database dibuat pada v3 awal.
+    await seedDatabase(db, false);
+  }
+
+  if (fromVersion < 4) {
+    await migrateToV4(db);
+  }
+
+  await db.runAsync(
+    `INSERT INTO app_meta (key, value)
+     VALUES ('database_version', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    String(CURRENT_DATABASE_VERSION),
+  );
+
+  await db.execAsync(`ANALYZE; PRAGMA optimize;`);
 }
 
 export async function initializeDatabase() {
   const db = await getDatabase();
 
-  await db.execAsync(DATABASE_SCHEMA);
+  const metaTable = await db.getFirstAsync<{ name: string }>(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'app_meta'`,
+  );
 
-  await runMigrations(db);
+  if (!metaTable) {
+    await db.execAsync(DATABASE_SCHEMA);
+    await seedDatabase(db, false);
+    await db.runAsync(
+      `INSERT INTO app_meta (key, value)
+       VALUES ('database_version', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      String(CURRENT_DATABASE_VERSION),
+    );
+    await db.execAsync(`ANALYZE; PRAGMA optimize;`);
+    return;
+  }
 
-  await seedDatabase();
+  const versionRow = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_meta WHERE key = 'database_version'`,
+  );
+  const currentVersion = Number(versionRow?.value ?? 1);
 
-  console.log("Laundrify SQLite initialized!");
+  if (currentVersion >= CURRENT_DATABASE_VERSION) {
+    return;
+  }
+
+  await runUpgrades(db, currentVersion);
 }

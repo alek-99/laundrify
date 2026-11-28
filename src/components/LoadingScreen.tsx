@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Animated,
   Easing,
@@ -18,15 +18,14 @@ export default function LoadingScreen({
   progress = 0,
   status = "Menyiapkan aplikasi...",
 }: LoadingScreenProps) {
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const logoAnim = useRef(new Animated.Value(0.85)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const [logoAnim] = useState(() => new Animated.Value(0.85));
+  const [fadeAnim] = useState(() => new Animated.Value(0));
+  const [pulseAnim] = useState(() => new Animated.Value(1));
 
-  const [displayProgress, setDisplayProgress] = useState(0);
+  const clampedProgress = Math.round(Math.max(0, Math.min(100, progress)));
 
   useEffect(() => {
-    Animated.parallel([
+    const enterAnim = Animated.parallel([
       Animated.spring(logoAnim, {
         toValue: 1,
         friction: 6,
@@ -35,10 +34,10 @@ export default function LoadingScreen({
       }),
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 700,
+        duration: 450,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
 
     const pulse = Animated.loop(
       Animated.sequence([
@@ -54,38 +53,17 @@ export default function LoadingScreen({
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
 
+    enterAnim.start();
     pulse.start();
 
     return () => {
+      enterAnim.stop();
       pulse.stop();
     };
-  }, []);
-
-  useEffect(() => {
-    const listener = progressAnim.addListener(({ value }) => {
-      setDisplayProgress(Math.round(value));
-    });
-
-    Animated.timing(progressAnim, {
-      toValue: Math.max(0, Math.min(100, progress)),
-      duration: 450,
-      easing: Easing.out(Easing.ease),
-      useNativeDriver: false,
-    }).start();
-
-    return () => {
-      progressAnim.removeListener(listener);
-    };
-  }, [progress]);
-
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 100],
-    outputRange: ["0%", "100%"],
-    extrapolate: "clamp",
-  });
+  }, [fadeAnim, logoAnim, pulseAnim]);
 
   return (
     <View style={styles.container}>
@@ -136,17 +114,17 @@ export default function LoadingScreen({
             </View>
 
             <Text style={styles.percentage}>
-              {displayProgress}%
+              {clampedProgress}%
             </Text>
           </View>
 
           {/* INSET PROGRESS BAR */}
           <View style={styles.progressOuter}>
             <View style={styles.progressInner}>
-              <Animated.View
+              <View
                 style={[
                   styles.progressFill,
-                  { width: progressWidth },
+                  { width: `${clampedProgress}%` },
                 ]}
               />
             </View>

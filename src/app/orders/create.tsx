@@ -1,6 +1,12 @@
+import { FlashList } from "@shopify/flash-list";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { Award, Check, Plus, Printer, Send, Shirt } from "lucide-react-native";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Award from "lucide-react-native/icons/award";
+import Check from "lucide-react-native/icons/check";
+import Plus from "lucide-react-native/icons/plus";
+import Printer from "lucide-react-native/icons/printer";
+import Send from "lucide-react-native/icons/send";
+import Shirt from "lucide-react-native/icons/shirt";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Modal,
@@ -67,6 +73,26 @@ const UI = {
   redLight: "#FEE2E2",
 };
 
+const ServiceModalRow = memo(function ServiceModalRow({
+  service,
+  onSelect,
+}: {
+  service: Service;
+  onSelect: (service: Service) => void;
+}) {
+  return (
+    <Pressable onPress={() => onSelect(service)} style={s.modalItem}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.modalItemName}>{service.name}</Text>
+        <Text style={s.muted}>
+          {service.category.toUpperCase()} · Per {service.unit}
+        </Text>
+      </View>
+      <Text style={s.modalItemPrice}>{money(service.price)}</Text>
+    </Pressable>
+  );
+});
+
 export default function CreateOrder() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const editing = Boolean(id);
@@ -115,14 +141,17 @@ export default function CreateOrder() {
 
   const originalCustomerId = useRef<number | null>(null);
   const [hasExistingQuotaUsage, setHasExistingQuotaUsage] = useState(false);
+  const hasLoadedMasterRef = useRef(false);
 
-  // Muat layanan & paket member
+  // Muat layanan & paket member (hanya tampilkan loading penuh saat mount awal)
   useFocusEffect(
     useCallback(() => {
       let active = true;
       const loadMaster = async () => {
         try {
-          setLoading(true);
+          if (!hasLoadedMasterRef.current) {
+            setLoading(true);
+          }
           const [svcList, pkgList] = await Promise.all([
             getServices(true),
             MemberService.getMemberPackages(),
@@ -130,8 +159,11 @@ export default function CreateOrder() {
           if (!active) return;
           setServices(svcList);
           setMemberPackages(pkgList);
+          hasLoadedMasterRef.current = true;
         } catch (err: any) {
-          Alert.alert("Gagal memuat data", err?.message || "Terjadi kesalahan.");
+          if (!hasLoadedMasterRef.current) {
+            Alert.alert("Gagal memuat data", err?.message || "Terjadi kesalahan.");
+          }
         } finally {
           if (active) setLoading(false);
         }
@@ -304,19 +336,25 @@ export default function CreateOrder() {
 
   const hasPackagePurchase = orderItems.some((i) => i.item_type === "package");
 
-  useEffect(() => {
-    if (isUsingActiveMemberPackage) {
-      setPaidInput("0");
-      return;
-    }
-    if (paymentType === "paid") {
-      setPaidInput(String(calculations.total));
-    } else if (paymentType === "unpaid") {
-      setPaidInput("0");
-    }
-  }, [paymentType, calculations.total, isUsingActiveMemberPackage]);
+  const effectivePaidInput = isUsingActiveMemberPackage
+    ? "0"
+    : hasPackagePurchase || paymentType === "paid"
+      ? String(calculations.total)
+      : paymentType === "unpaid"
+        ? "0"
+        : paidInput;
 
-  const handleAddService = (service: Service) => {
+  const handlePaidInputChange = useCallback(
+    (value: string) => {
+      setPaidInput(value);
+      if (paymentType !== "partial") {
+        setPaymentType("partial");
+      }
+    },
+    [paymentType],
+  );
+
+  const handleAddService = useCallback((service: Service) => {
     setOrderItems((prev) => [
       ...prev,
       {
@@ -333,7 +371,25 @@ export default function CreateOrder() {
       },
     ]);
     setServiceModalVisible(false);
-  };
+  }, []);
+
+  const filteredServices = useMemo(
+    () =>
+      services.filter(
+        (svc) =>
+          serviceCategoryFilter === "all" ||
+          svc.category === serviceCategoryFilter,
+      ),
+    [services, serviceCategoryFilter],
+  );
+
+  const serviceKeyExtractor = useCallback((item: Service) => String(item.id), []);
+  const renderServiceModalRow = useCallback(
+    ({ item }: { item: Service }) => (
+      <ServiceModalRow service={item} onSelect={handleAddService} />
+    ),
+    [handleAddService],
+  );
 
   const handleAddPackage = (pkg: MemberPackage) => {
     setOrderItems((prev) => [
@@ -417,7 +473,7 @@ export default function CreateOrder() {
       return "Diskon manual tidak boleh melebihi subtotal layanan.";
     }
 
-    const parsedPaid = Number(paidInput) || 0;
+    const parsedPaid = Number(effectivePaidInput) || 0;
     if (parsedPaid < 0 || parsedPaid > calculations.total) {
       return "Nominal pembayaran tidak valid.";
     }
@@ -467,7 +523,7 @@ export default function CreateOrder() {
             notes: item.notes ?? null,
           }));
 
-      const parsedPaid = Number(paidInput) || 0;
+      const parsedPaid = Number(effectivePaidInput) || 0;
       const initialPayment =
         !isUsingActiveMemberPackage && parsedPaid > 0
           ? {
@@ -820,8 +876,8 @@ export default function CreateOrder() {
               <View style={{ marginTop: 12 }}>
                 <Field
                   label="Nominal Dibayar (Rp)"
-                  value={paidInput}
-                  onChangeText={setPaidInput}
+                  value={effectivePaidInput}
+                  onChangeText={handlePaidInputChange}
                   keyboardType="numeric"
                   placeholder="0"
                 />
@@ -909,29 +965,15 @@ export default function CreateOrder() {
               ))}
             </View>
 
-            <ScrollView style={{ maxHeight: 400 }}>
-              {services
-                .filter(
-                  (svc) =>
-                    serviceCategoryFilter === "all" ||
-                    svc.category === serviceCategoryFilter,
-                )
-                .map((svc) => (
-                  <Pressable
-                    key={svc.id}
-                    onPress={() => handleAddService(svc)}
-                    style={s.modalItem}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.modalItemName}>{svc.name}</Text>
-                      <Text style={s.muted}>
-                        {svc.category.toUpperCase()} · Per {svc.unit}
-                      </Text>
-                    </View>
-                    <Text style={s.modalItemPrice}>{money(svc.price)}</Text>
-                  </Pressable>
-                ))}
-            </ScrollView>
+            <View style={{ height: 400 }}>
+              <FlashList
+                data={filteredServices}
+                renderItem={renderServiceModalRow}
+                keyExtractor={serviceKeyExtractor}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              />
+            </View>
           </View>
         </View>
       </Modal>

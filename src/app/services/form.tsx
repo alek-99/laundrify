@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { router, useLocalSearchParams } from "expo-router";
 
@@ -25,7 +26,9 @@ import {
 
 import type { ServiceUnit } from "../../types/database";
 
-import { ArrowLeft, Check, ChevronDown, Shirt } from "lucide-react-native";
+import ArrowLeft from "lucide-react-native/icons/arrow-left";
+import Check from "lucide-react-native/icons/check";
+import Shirt from "lucide-react-native/icons/shirt";
 
 const C = {
   bg: "#F5F7FB",
@@ -72,8 +75,6 @@ const packages: {
   { value: "ST", label: "Setrika Only" },
 ];
 
-const units: ServiceUnit[] = ["kg", "pcs", "mtr", "m2"];
-
 const speeds = [
   { label: "5 Jam", hours: 5 },
   { label: "1 Hari", hours: 24 },
@@ -85,8 +86,86 @@ const speeds = [
 // COMPONENT
 // ======================================================
 
+function Input({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+  multiline,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  keyboardType?: "default" | "numeric";
+  multiline?: boolean;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={C.muted}
+        keyboardType={keyboardType ?? "default"}
+        multiline={multiline}
+        textAlignVertical={multiline ? "top" : "center"}
+        style={[
+          styles.input,
+          multiline && styles.textarea,
+        ]}
+      />
+    </View>
+  );
+}
+
+function Option({
+  selected,
+  label,
+  onPress,
+  description,
+}: {
+  selected: boolean;
+  label: string;
+  onPress: () => void;
+  description?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.option,
+        selected && styles.optionSelected,
+      ]}
+    >
+      <View style={{ flex: 1 }}>
+        <Text
+          style={[
+            styles.optionText,
+            selected && { color: C.primary },
+          ]}
+        >
+          {label}
+        </Text>
+
+        {description ? (
+          <Text style={styles.optionDescription}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
+
+      {selected && <Check size={17} color={C.primary} />}
+    </Pressable>
+  );
+}
+
 export default function ServiceForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
+  const insets = useSafeAreaInsets();
 
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -296,87 +375,6 @@ export default function ServiceForm() {
   };
 
   // ====================================================
-  // REUSABLE INPUT
-  // ====================================================
-
-  const Input = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    keyboardType,
-    multiline,
-  }: {
-    label: string;
-    value: string;
-    onChangeText: (value: string) => void;
-    placeholder?: string;
-    keyboardType?: "default" | "numeric";
-    multiline?: boolean;
-  }) => (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={C.muted}
-        keyboardType={keyboardType ?? "default"}
-        multiline={multiline}
-        textAlignVertical={multiline ? "top" : "center"}
-        style={[
-          styles.input,
-          multiline && styles.textarea,
-        ]}
-      />
-    </View>
-  );
-
-  // ====================================================
-  // OPTION CHIP
-  // ====================================================
-
-  const Option = ({
-    selected,
-    label,
-    onPress,
-    description,
-  }: {
-    selected: boolean;
-    label: string;
-    onPress: () => void;
-    description?: string;
-  }) => (
-    <Pressable
-      onPress={onPress}
-      style={[
-        styles.option,
-        selected && styles.optionSelected,
-      ]}
-    >
-      <View style={{ flex: 1 }}>
-        <Text
-          style={[
-            styles.optionText,
-            selected && { color: C.primary },
-          ]}
-        >
-          {label}
-        </Text>
-
-        {description ? (
-          <Text style={styles.optionDescription}>
-            {description}
-          </Text>
-        ) : null}
-      </View>
-
-      {selected && <Check size={17} color={C.primary} />}
-    </Pressable>
-  );
-
-  // ====================================================
   // LOADING
   // ====================================================
 
@@ -395,7 +393,7 @@ export default function ServiceForm() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
         <Pressable
           onPress={() => router.back()}
           style={styles.backButton}
@@ -416,7 +414,10 @@ export default function ServiceForm() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom + 16, 35) },
+        ]}
       >
         <View
           style={[

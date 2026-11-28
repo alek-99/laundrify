@@ -2,6 +2,138 @@
 // Status order : received | processing | ready | completed
 //                (diterima | diproses | siap diambil | selesai)
 
+export const SCHEMA_INDEXES_AND_TRIGGERS_SQL = `
+  -- Customers
+  CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name COLLATE NOCASE);
+  CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+  CREATE INDEX IF NOT EXISTS idx_customers_active_id
+    ON customers(id DESC) WHERE deleted_at IS NULL;
+
+  -- Services
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_unique
+    ON services(LOWER(TRIM(name)));
+  CREATE INDEX IF NOT EXISTS idx_services_category
+    ON services(category, sort_order);
+
+  -- Orders (partial indexes untuk query aktif & sorting terbaru)
+  CREATE INDEX IF NOT EXISTS idx_orders_customer
+    ON orders(customer_id, order_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_orders_active_date
+    ON orders(order_date DESC, id DESC) WHERE deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS idx_orders_active_status_date
+    ON orders(status, order_date DESC, id DESC) WHERE deleted_at IS NULL;
+  CREATE INDEX IF NOT EXISTS idx_orders_order_date
+    ON orders(order_date);
+  CREATE INDEX IF NOT EXISTS idx_orders_payment
+    ON orders(payment_status);
+
+  -- Order Items & Status History
+  CREATE INDEX IF NOT EXISTS idx_order_items_order
+    ON order_items(order_id);
+  CREATE INDEX IF NOT EXISTS idx_order_items_service
+    ON order_items(service_id);
+  CREATE INDEX IF NOT EXISTS idx_order_status_history_order_created
+    ON order_status_history(order_id, created_at);
+
+  -- Member Subscriptions & Usages
+  CREATE INDEX IF NOT EXISTS idx_subs_customer
+    ON member_subscriptions(customer_id, status);
+  CREATE INDEX IF NOT EXISTS idx_member_subscriptions_purchase_order
+    ON member_subscriptions(purchase_order_id);
+  CREATE INDEX IF NOT EXISTS idx_usages_sub
+    ON member_usages(subscription_id, is_void, used_at);
+  CREATE INDEX IF NOT EXISTS idx_member_usages_order
+    ON member_usages(order_id);
+
+  -- Payments & Cash Transactions
+  CREATE INDEX IF NOT EXISTS idx_payments_order
+    ON payments(order_id, is_void);
+  CREATE INDEX IF NOT EXISTS idx_payments_active_date
+    ON payments(is_void, payment_date);
+  CREATE INDEX IF NOT EXISTS idx_cash_date
+    ON cash_transactions(transaction_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_cash_active_date
+    ON cash_transactions(transaction_date DESC, id DESC) WHERE is_void = 0;
+  CREATE INDEX IF NOT EXISTS idx_cash_active_dir_date
+    ON cash_transactions(direction, transaction_date DESC, id DESC) WHERE is_void = 0;
+  CREATE INDEX IF NOT EXISTS idx_cash_category
+    ON cash_transactions(category_id);
+
+  -- Print & WhatsApp Logs (mendukung FK cascades & detail order)
+  CREATE INDEX IF NOT EXISTS idx_print_logs_order
+    ON print_logs(order_id);
+  CREATE INDEX IF NOT EXISTS idx_print_logs_subscription
+    ON print_logs(subscription_id);
+  CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_order
+    ON whatsapp_logs(order_id);
+  CREATE INDEX IF NOT EXISTS idx_whatsapp_logs_customer
+    ON whatsapp_logs(customer_id);
+
+  -- Triggers untuk menjaga orders.paid_amount & orders.payment_status selalu sinkron dengan payments
+  CREATE TRIGGER IF NOT EXISTS trg_payments_after_insert
+  AFTER INSERT ON payments
+  BEGIN
+    UPDATE orders
+    SET paid_amount = COALESCE((
+      SELECT SUM(amount)
+      FROM payments
+      WHERE order_id = NEW.order_id AND is_void = 0
+    ), 0),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.order_id;
+
+    UPDATE orders
+    SET payment_status = CASE
+      WHEN paid_amount >= total THEN 'paid'
+      WHEN paid_amount > 0 THEN 'partial'
+      ELSE 'unpaid'
+    END
+    WHERE id = NEW.order_id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_payments_after_update
+  AFTER UPDATE OF amount, is_void, order_id ON payments
+  BEGIN
+    UPDATE orders
+    SET paid_amount = COALESCE((
+      SELECT SUM(amount)
+      FROM payments
+      WHERE order_id = NEW.order_id AND is_void = 0
+    ), 0),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.order_id;
+
+    UPDATE orders
+    SET payment_status = CASE
+      WHEN paid_amount >= total THEN 'paid'
+      WHEN paid_amount > 0 THEN 'partial'
+      ELSE 'unpaid'
+    END
+    WHERE id = NEW.order_id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_payments_after_delete
+  AFTER DELETE ON payments
+  BEGIN
+    UPDATE orders
+    SET paid_amount = COALESCE((
+      SELECT SUM(amount)
+      FROM payments
+      WHERE order_id = OLD.order_id AND is_void = 0
+    ), 0),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = OLD.order_id;
+
+    UPDATE orders
+    SET payment_status = CASE
+      WHEN paid_amount >= total THEN 'paid'
+      WHEN paid_amount > 0 THEN 'partial'
+      ELSE 'unpaid'
+    END
+    WHERE id = OLD.order_id;
+  END;
+`;
+
 export const DATABASE_SCHEMA = `
   -- ============ PELANGGAN ============
   CREATE TABLE IF NOT EXISTS customers (
@@ -15,10 +147,6 @@ export const DATABASE_SCHEMA = `
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TEXT
   );
-  CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name COLLATE NOCASE);
-  CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
-  CREATE INDEX IF NOT EXISTS idx_customers_active_id
-    ON customers(id DESC) WHERE deleted_at IS NULL;
 
   -- ============ LAYANAN (price list) ============
   -- category    : kiloan | satuan | karpet
@@ -39,10 +167,6 @@ export const DATABASE_SCHEMA = `
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_services_name_unique
-    ON services(LOWER(TRIM(name)));
-  CREATE INDEX IF NOT EXISTS idx_services_category
-    ON services(category, sort_order);
 
   -- ============ MASTER PAKET MEMBER (price list paket member) ============
   CREATE TABLE IF NOT EXISTS member_packages (
@@ -86,9 +210,6 @@ export const DATABASE_SCHEMA = `
     CHECK(total = subtotal - member_discount - discount),
     CHECK(customer_id IS NOT NULL OR LENGTH(TRIM(COALESCE(customer_name, ''))) > 0)
   );
-  CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id, order_date DESC);
-  CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, order_date DESC);
-  CREATE INDEX IF NOT EXISTS idx_orders_payment ON orders(payment_status);
 
   -- item_type = 'service' (layanan biasa) atau 'package' (membeli paket member)
   -- paid_by_subscription_id terisi bila item ini dipotong dari kuota paket (harga ditanggung member)
@@ -112,7 +233,6 @@ export const DATABASE_SCHEMA = `
     FOREIGN KEY(paid_by_subscription_id) REFERENCES member_subscriptions(id) ON DELETE SET NULL,
     CHECK(item_type = 'service' OR package_id IS NOT NULL)
   );
-  CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 
   CREATE TABLE IF NOT EXISTS order_status_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,7 +266,6 @@ export const DATABASE_SCHEMA = `
     FOREIGN KEY(package_id) REFERENCES member_packages(id) ON DELETE SET NULL,
     FOREIGN KEY(purchase_order_id) REFERENCES orders(id) ON DELETE SET NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_subs_customer ON member_subscriptions(customer_id, status);
 
   -- Satu baris = satu kotak di kartu (maks 15 kotak per kartu).
   -- slot_no 1..15 = nomor kotak; card_page = ((urutan-1)/15)+1 (hitung di aplikasi).
@@ -162,7 +281,6 @@ export const DATABASE_SCHEMA = `
     FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
     FOREIGN KEY(order_item_id) REFERENCES order_items(id) ON DELETE SET NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_usages_sub ON member_usages(subscription_id, is_void, used_at);
 
   -- Saldo kuota dihitung dari log (tidak disimpan ganda, jadi selalu konsisten)
   CREATE VIEW IF NOT EXISTS v_subscription_balance AS
@@ -196,7 +314,6 @@ export const DATABASE_SCHEMA = `
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE RESTRICT
   );
-  CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id, is_void);
 
   CREATE TABLE IF NOT EXISTS cash_transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,7 +328,6 @@ export const DATABASE_SCHEMA = `
     FOREIGN KEY(category_id) REFERENCES cash_categories(id) ON DELETE RESTRICT,
     FOREIGN KEY(payment_id) REFERENCES payments(id) ON DELETE RESTRICT
   );
-  CREATE INDEX IF NOT EXISTS idx_cash_date ON cash_transactions(transaction_date DESC);
 
   -- ============ CETAK & WHATSAPP ============
   -- Log cetak: struk, label, kartu member
@@ -266,6 +382,8 @@ export const DATABASE_SCHEMA = `
     ('CKL-50',  'Cuci Kering Lipat 50 KG',    'CKL', 50,  275000),
     ('ST-100',  'Setrika Only 100 KG',        'ST',  100, 500000),
     ('ST-50',   'Setrika Only 50 KG',         'ST',  50,  275000);
+
+  ${SCHEMA_INDEXES_AND_TRIGGERS_SQL}
 `;
 
 // ======================================================================
@@ -281,10 +399,10 @@ export type ServiceSeed = {
 };
 
 // --- Kiloan: [kode, nama, [5 Jam, 1 Hari, 2 Hari, 3 Hari]]
-const KILOAN: [ 'CKS' | 'CKL' | 'ST', string, number[] ][] = [
+const KILOAN: ['CKS' | 'CKL' | 'ST', string, number[]][] = [
   ['CKS', 'Cuci Kering Setrika', [20000, 12000, 10000, 8000]],
-  ['CKL', 'Cuci Kering Lipat',   [15000, 10000, 8000, 6000]],
-  ['ST',  'Setrika Only',        [15000, 10000, 8000, 6000]],
+  ['CKL', 'Cuci Kering Lipat', [15000, 10000, 8000, 6000]],
+  ['ST', 'Setrika Only', [15000, 10000, 8000, 6000]],
 ];
 const SPEEDS: [string, number][] = [['5 Jam', 5], ['1 Hari', 24], ['2 Hari', 48], ['3 Hari', 72]];
 
@@ -325,10 +443,10 @@ const SATUAN: [string, number, ServiceSeed['unit']][] = [
 // --- Cuci karpet per m²: [nama, [Tipis, Sedang, Tebal, Super Tebal]]
 const KARPET: [string, number[]][] = [
   ['Permadani', [15000, 25000, 30000, 45000]],
-  ['Bulu',      [25000, 30000, 45000, 60000]],
-  ['Masjid',    [15000, 20000, 25000, 30000]],
-  ['Kantor',    [20000, 30000, 45000, 60000]],
-  ['Kain',      [15000, 25000, 30000, 40000]],
+  ['Bulu', [25000, 30000, 45000, 60000]],
+  ['Masjid', [15000, 20000, 25000, 30000]],
+  ['Kantor', [20000, 30000, 45000, 60000]],
+  ['Kain', [15000, 25000, 30000, 40000]],
   ['Sutera / Wol', [30000, 40000, 55000, 70000]],
 ];
 const KARPET_LEVEL = ['Tipis', 'Sedang', 'Tebal', 'Super Tebal'];
@@ -369,75 +487,3 @@ export async function seedServices(db: SeedDb) {
     );
   }
 }
-
-// ======================================================================
-// MIGRASI v1 -> v2 (untuk database yang sudah berisi data)
-// Jalankan SEKALI, simpan app_meta('schema_version') = '2'.
-// Urutan: 1) PRAGMA foreign_keys=OFF  2) BEGIN  3) langkah di bawah  4) COMMIT  5) PRAGMA foreign_keys=ON
-// Jika data lama hanya data uji, cara paling mudah: hapus database lalu buat ulang.
-// ======================================================================
-export const MIGRATION_V2_STEPS: string[] = [
-  `ALTER TABLE services ADD COLUMN category TEXT NOT NULL DEFAULT 'kiloan'`,
-  `ALTER TABLE services ADD COLUMN package_type TEXT`,
-  `ALTER TABLE services ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
-  `ALTER TABLE order_items ADD COLUMN item_type TEXT NOT NULL DEFAULT 'service'`,
-  `ALTER TABLE order_items ADD COLUMN package_id INTEGER`,
-  `ALTER TABLE order_items ADD COLUMN paid_by_subscription_id INTEGER`,
-
-  // orders: CHECK status berubah -> tabel harus dibangun ulang
-  `CREATE TABLE orders_new (
-     id INTEGER PRIMARY KEY AUTOINCREMENT,
-     order_number TEXT NOT NULL UNIQUE,
-     customer_id INTEGER, customer_name TEXT, customer_phone TEXT,
-     order_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-     estimated_completion TEXT, completed_at TEXT,
-     status TEXT NOT NULL DEFAULT 'received'
-       CHECK(status IN ('received','processing','ready','completed')),
-     payment_status TEXT NOT NULL DEFAULT 'unpaid'
-       CHECK(payment_status IN ('unpaid','partial','paid')),
-     subtotal INTEGER NOT NULL DEFAULT 0,
-     member_discount INTEGER NOT NULL DEFAULT 0,
-     discount INTEGER NOT NULL DEFAULT 0,
-     total INTEGER NOT NULL DEFAULT 0,
-     paid_amount INTEGER NOT NULL DEFAULT 0,
-     notes TEXT,
-     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-     deleted_at TEXT,
-     FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
-     CHECK(member_discount >= 0 AND discount >= 0),
-     CHECK(member_discount + discount <= subtotal),
-     CHECK(total = subtotal - member_discount - discount),
-     CHECK(customer_id IS NOT NULL OR LENGTH(TRIM(COALESCE(customer_name, ''))) > 0)
-   )`,
-  `INSERT INTO orders_new
-     (id, order_number, customer_id, customer_name, customer_phone, order_date,
-      estimated_completion, status, subtotal, discount, total, notes,
-      created_at, updated_at, deleted_at)
-   SELECT id, order_number, customer_id, customer_name, customer_phone, order_date,
-      estimated_completion,
-      CASE
-        WHEN status IN ('received','diterima') THEN 'received'
-        WHEN status IN ('ready','siap_diambil') THEN 'ready'
-        WHEN status IN ('completed','done','picked_up','delivered','selesai') THEN 'completed'
-        ELSE 'processing'
-      END,
-      subtotal, discount, total, notes, created_at, updated_at, deleted_at
-   FROM orders`,
-  `DROP TABLE orders`,
-  `ALTER TABLE orders_new RENAME TO orders`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id, order_date DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, order_date DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_payment ON orders(payment_status)`,
-
-  // Hitung ulang status & jumlah bayar dari payments yang sudah ada
-  `UPDATE orders SET paid_amount = COALESCE((
-       SELECT SUM(amount) FROM payments p WHERE p.order_id = orders.id AND p.is_void = 0), 0)`,
-  `UPDATE orders SET payment_status = CASE
-       WHEN paid_amount <= 0 THEN 'unpaid'
-       WHEN paid_amount >= total THEN 'paid'
-       ELSE 'partial' END`,
-];
-// Setelah migrasi: jalankan DATABASE_SCHEMA lagi (IF NOT EXISTS membuat tabel baru),
-// lalu seedServices(db). Layanan lama yang namanya tidak ada di price list
-// sebaiknya dinonaktifkan: UPDATE services SET is_active = 0 WHERE category = 'kiloan' AND package_type IS NULL;
